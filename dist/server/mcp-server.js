@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from 'module'; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -3515,7 +3516,7 @@ var require_schemes = __commonJS({
         serialize: wsSerialize
       }
     );
-    var wss2 = (
+    var wss = (
       /** @type {SchemeHandler} */
       {
         scheme: "wss",
@@ -3548,7 +3549,7 @@ var require_schemes = __commonJS({
         http,
         https,
         ws,
-        wss: wss2,
+        wss,
         urn,
         "urn:uuid": urnuuid
       }
@@ -30949,25 +30950,48 @@ var browserClient = null;
 var pending = /* @__PURE__ */ new Map();
 var nextId = 0;
 var genId = () => `req_${++nextId}_${Date.now()}`;
-var wss = new import_websocket_server.default({ port: PORT });
-console.error(`[mcp-devtools] WebSocket server listening on port ${PORT}`);
-wss.on("connection", (ws) => {
-  console.error("[mcp-devtools] browser client connected");
-  browserClient = ws;
-  ws.on("message", (raw) => {
-    const msg = JSON.parse(raw.toString());
-    const entry = pending.get(msg.id);
-    if (entry) {
-      clearTimeout(entry.timer);
-      pending.delete(msg.id);
-      entry.resolve(msg);
+var MAX_RETRIES = 5;
+var RETRY_DELAY_MS = 2e3;
+var bindConnection = (wss) => {
+  wss.on("connection", (ws) => {
+    console.error("[mcp-devtools] browser client connected");
+    browserClient = ws;
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      const entry = pending.get(msg.id);
+      if (entry) {
+        clearTimeout(entry.timer);
+        pending.delete(msg.id);
+        entry.resolve(msg);
+      }
+    });
+    ws.on("close", () => {
+      console.error("[mcp-devtools] browser client disconnected");
+      if (browserClient === ws) browserClient = null;
+    });
+  });
+};
+var startWebSocket = (attempt = 1) => {
+  const wss = new import_websocket_server.default({ port: PORT });
+  wss.on("listening", () => {
+    console.error(`[mcp-devtools] WebSocket server listening on port ${PORT}`);
+  });
+  wss.on("error", (err) => {
+    if (err.code === "EADDRINUSE" && attempt < MAX_RETRIES) {
+      console.error(
+        `[mcp-devtools] Port ${PORT} in use \u2014 retry ${attempt}/${MAX_RETRIES} in ${RETRY_DELAY_MS}ms...`
+      );
+      wss.close();
+      setTimeout(() => startWebSocket(attempt + 1), RETRY_DELAY_MS);
+    } else {
+      console.error(
+        `[mcp-devtools] WebSocket server failed (${err.code ?? "unknown"}): ${err.message}. MCP tools still available via stdio, but browser bridge is disabled.`
+      );
     }
   });
-  ws.on("close", () => {
-    console.error("[mcp-devtools] browser client disconnected");
-    if (browserClient === ws) browserClient = null;
-  });
-});
+  bindConnection(wss);
+};
+startWebSocket();
 var sendAndWait = (message) => new Promise((resolve, reject) => {
   if (!browserClient || browserClient.readyState !== import_websocket.default.OPEN) {
     reject(

@@ -23,28 +23,59 @@ const genId = (): string => `req_${++nextId}_${Date.now()}`;
 
 // --- WebSocket server ---
 
-const wss = new WebSocketServer({ port: PORT });
-console.error(`[mcp-devtools] WebSocket server listening on port ${PORT}`);
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 2000;
 
-wss.on("connection", (ws) => {
-    console.error("[mcp-devtools] browser client connected");
-    browserClient = ws;
+const bindConnection = (wss: InstanceType<typeof WebSocketServer>): void => {
+    wss.on("connection", (ws) => {
+        console.error("[mcp-devtools] browser client connected");
+        browserClient = ws;
 
-    ws.on("message", (raw) => {
-        const msg = JSON.parse(raw.toString()) as ClientMessage;
-        const entry = pending.get(msg.id);
-        if (entry) {
-            clearTimeout(entry.timer);
-            pending.delete(msg.id);
-            entry.resolve(msg);
+        ws.on("message", (raw) => {
+            const msg = JSON.parse(raw.toString()) as ClientMessage;
+            const entry = pending.get(msg.id);
+            if (entry) {
+                clearTimeout(entry.timer);
+                pending.delete(msg.id);
+                entry.resolve(msg);
+            }
+        });
+
+        ws.on("close", () => {
+            console.error("[mcp-devtools] browser client disconnected");
+            if (browserClient === ws) browserClient = null;
+        });
+    });
+};
+
+const startWebSocket = (attempt = 1): void => {
+    const wss = new WebSocketServer({ port: PORT });
+
+    wss.on("listening", () => {
+        console.error(`[mcp-devtools] WebSocket server listening on port ${PORT}`);
+    });
+
+    wss.on("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE" && attempt < MAX_RETRIES) {
+            console.error(
+                `[mcp-devtools] Port ${PORT} in use — retry ${attempt}/${MAX_RETRIES} in ${RETRY_DELAY_MS}ms...`,
+            );
+            wss.close();
+            setTimeout(() => startWebSocket(attempt + 1), RETRY_DELAY_MS);
+        } else {
+            // EPERM (sandbox), EACCES, or exhausted retries — log but don't crash.
+            // The MCP stdio server stays alive; WebSocket features are unavailable.
+            console.error(
+                `[mcp-devtools] WebSocket server failed (${err.code ?? "unknown"}): ${err.message}. ` +
+                    "MCP tools still available via stdio, but browser bridge is disabled.",
+            );
         }
     });
 
-    ws.on("close", () => {
-        console.error("[mcp-devtools] browser client disconnected");
-        if (browserClient === ws) browserClient = null;
-    });
-});
+    bindConnection(wss);
+};
+
+startWebSocket();
 
 // --- Helpers ---
 

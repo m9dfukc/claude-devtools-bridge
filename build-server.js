@@ -7,5 +7,5 @@ await build({
     format: "esm",
     target: "node20",
     outfile: "dist/server/mcp-server.js",
-    banner: { js: "#!/usr/bin/env node" },
+    banner: { js: "#!/usr/bin/env node\nimport { createRequire } from 'module'; const require = createRequire(import.meta.url);" },
 });
