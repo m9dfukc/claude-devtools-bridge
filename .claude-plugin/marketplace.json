@@ -1,0 +1,18 @@
+{
+    "name": "claude-devtools-bridge",
+    "owner": {
+        "name": "m9dfukc"
+    },
+    "plugins": [
+        {
+            "name": "devtools-bridge",
+            "source": "./",
+            "description": "MCP devtools bridge — inspect and mutate live application state from Claude via WebSocket",
+            "version": "0.1.0",
+            "author": {
+                "name": "m9dfukc"
+            },
+            "category": "development"
+        }
+    ]
+}
