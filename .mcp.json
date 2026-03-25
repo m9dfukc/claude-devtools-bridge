@@ -1,8 +1,8 @@
 {
     "mcpServers": {
-        "app-devtools": {
-            "command": "npx",
-            "args": ["tsx", "${CLAUDE_PLUGIN_ROOT}/src/server/mcp-server.ts"]
+        "devtools-bridge": {
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/server/mcp-server.js"]
         }
     }
 }

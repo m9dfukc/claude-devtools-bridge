@@ -21,15 +21,46 @@ Browser App                    Node MCP Server              Claude
 
 The **client** runs in your browser app and holds registered state containers and actions. The **MCP server** runs as a Node process, bridges WebSocket to MCP stdio, and exposes 5 tools that Claude can call.
 
-## Install
+## Setup
 
-```bash
-npm install -D claude-devtools-bridge
+There are two parts: the **client** (runs in your browser app) and the **MCP server** (gives Claude the tools). You can set these up as a Claude Code plugin, as a standalone MCP server, or both.
+
+### Option A: Claude Code plugin (recommended)
+
+The plugin bundles the MCP server and a skill with devtools conventions. No `.mcp.json` needed.
+
+**1. Enable the plugin** in `.claude/settings.json`:
+
+```json
+{
+    "enabledPlugins": {
+        "devtools-bridge@claude-devtools-bridge": true
+    },
+    "extraKnownMarketplaces": {
+        "claude-devtools-bridge": {
+            "source": {
+                "source": "github",
+                "repo": "m9dfukc/claude-devtools-bridge"
+            }
+        }
+    }
+}
 ```
 
-## Quick start
+**2. Install the client** as a dev dependency (for browser-side imports):
 
-### 1. Register state and actions in your app
+```bash
+# npm
+npm install -D claude-devtools-bridge@github:m9dfukc/claude-devtools-bridge
+
+# pnpm / yarn berry (v2+)
+pnpm add -D claude-devtools-bridge@github:m9dfukc/claude-devtools-bridge
+
+# yarn v1 (classic) — needs explicit transitive dep due to hoisting quirk
+yarn add -D claude-devtools-bridge@m9dfukc/claude-devtools-bridge @modelcontextprotocol/sdk
+```
+
+**3. Register state and actions** in your app:
 
 ```ts
 import {
@@ -60,22 +91,34 @@ registerAction(
 const cleanup = initDevtools({ port: 7777 });
 ```
 
-### 2. Add the MCP server to `.mcp.json`
+**4. Start your app and Claude Code.** The plugin provides the MCP server automatically — Claude gets 5 tools plus the `devtools-bridge` skill.
+
+### Option B: Standalone MCP server
+
+If you don't want the plugin, add the MCP server manually.
+
+**1. Install the package** as a dev dependency (same as above).
+
+**2. Add the MCP server** to your project's `.mcp.json`:
 
 ```json
 {
     "mcpServers": {
-        "app-devtools": {
-            "command": "npx",
-            "args": ["tsx", "node_modules/claude-devtools-bridge/src/server/mcp-server.ts"]
+        "devtools-bridge": {
+            "command": "node",
+            "args": ["node_modules/claude-devtools-bridge/dist/server/mcp-server.js"]
         }
     }
 }
 ```
 
-### 3. Start your app and Claude Code
+**3. Register state and actions** in your app (same as Option A, step 3).
 
-Claude now has access to 5 tools:
+**4. Start your app and Claude Code.** Claude gets the 5 MCP tools but not the skill — you'd need to add that manually if desired.
+
+## MCP tools
+
+Once connected, Claude has access to:
 
 | Tool | Description |
 |------|-------------|
@@ -187,16 +230,6 @@ Default: `7777`. Override via:
 
 - **Client:** `initDevtools({ port: 8888 })`
 - **Server:** `DEVTOOLS_PORT=8888` environment variable
-
-## Claude plugin
-
-This package is also a Claude Code plugin. Install it locally:
-
-```bash
-claude --plugin-dir ./node_modules/claude-devtools-bridge
-```
-
-This provides the MCP server and a skill with conventions for devtools-aware code.
 
 ## License
 
