@@ -2,6 +2,7 @@
 
 import {
     getRegisteredAtoms,
+    getRegisteredDerived,
     getRegisteredActions,
     getLogs,
     clearLogs,
@@ -13,11 +14,18 @@ const RECONNECT_INTERVAL_MS = 2000;
 const DEFAULT_PORT = 7777;
 
 const handleGetState = (): Record<string, unknown> => {
-    const result: Record<string, unknown> = {};
+    const atoms: Record<string, unknown> = {};
     for (const [name, atom] of getRegisteredAtoms()) {
-        result[name] = safeSerializeValue(atom.deref());
+        atoms[name] = safeSerializeValue(atom.deref());
     }
-    return result;
+    const derivedMap = getRegisteredDerived();
+    if (derivedMap.size === 0) return atoms;
+
+    const derived: Record<string, unknown> = {};
+    for (const [name, d] of derivedMap) {
+        derived[name] = safeSerializeValue(d.deref());
+    }
+    return { ...atoms, $derived: derived };
 };
 
 const parseValue = (value: unknown): unknown => {
@@ -33,6 +41,13 @@ const handleSetState = (
     path: string,
     value: unknown,
 ): { success: boolean; error?: string } => {
+    // Reject writes to derived state
+    if (getRegisteredDerived().has(path)) {
+        return {
+            success: false,
+            error: `"${path}" is a derived (read-only) value and cannot be set directly.`,
+        };
+    }
     const atoms = getRegisteredAtoms();
     const atom = atoms.get(path);
     if (!atom) {

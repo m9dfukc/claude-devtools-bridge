@@ -7,6 +7,15 @@ export interface LogEntry {
     readonly action: string;
     readonly timestamp: number;
     readonly diffs: ReadonlyArray<StateDiff>;
+    readonly children?: ReadonlyArray<LogEntry>;
+    readonly kind?: "action" | "effect";
+    readonly duration?: number;
+    readonly args?: unknown;
+    readonly result?: unknown;
+    readonly error?: string;
+}
+export interface Derivable<T = unknown> {
+    deref(): T;
 }
 export interface StateDiff {
     readonly atom: string;
@@ -69,6 +78,7 @@ export type ServerMessage = GetStateMsg | SetStateMsg | TriggerActionMsg | GetLo
 export type ClientMessage = StateResultMsg | SetStateResultMsg | ActionResultMsg | LogsResultMsg | ClearLogsResultMsg;
 export interface DevtoolsRegistry {
     readonly atoms: Map<string, Watchable>;
+    readonly derived: Map<string, Derivable>;
     readonly actions: Map<string, ActionFn>;
     readonly logs: LogEntry[];
 }

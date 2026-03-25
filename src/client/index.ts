@@ -1,9 +1,10 @@
 // Public API for the devtools bridge (browser-side)
 
-export { registerAtom, registerAction } from "./action-registry";
+export { registerAtom, registerAction, registerDerived } from "./action-registry";
 export { wrapAction } from "./wrap-action";
+export { wrapEffect } from "./wrap-effect";
 export { connectDevtools } from "./devtools-client";
-export type { Watchable, ActionFn } from "./types";
+export type { Watchable, Derivable, ActionFn } from "./types";
 export type { ConnectOptions } from "./devtools-client";
 
 import { connectDevtools } from "./devtools-client";

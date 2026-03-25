@@ -1,5 +1,5 @@
-// Wraps an action function to capture before/after atom snapshots
-import { getRegisteredAtoms, addLogEntry } from "./action-registry";
+// Wraps an action function to capture before/after atom snapshots with nested tree support
+import { getRegisteredAtoms, addLogEntry, pushExecutionContext, popExecutionContext, } from "./action-registry";
 const snapshotAtoms = () => {
     const snap = new Map();
     for (const [name, atom] of getRegisteredAtoms()) {
@@ -22,26 +22,41 @@ const computeDiffs = (before, after) => {
     }
     return diffs;
 };
-const logExecution = (actionName, before) => {
+const buildEntry = (actionName, before, children) => {
     const after = snapshotAtoms();
-    addLogEntry({
+    const entry = {
         action: actionName,
         timestamp: Date.now(),
+        kind: "action",
         diffs: computeDiffs(before, after),
-    });
+    };
+    if (children.length > 0) {
+        return { ...entry, children };
+    }
+    return entry;
 };
 export const wrapAction = (name, fn) => {
     const wrapped = (...args) => {
         const before = snapshotAtoms();
+        pushExecutionContext();
         const result = fn(...args);
         // Handle async actions
         if (result instanceof Promise) {
             return result.then((resolved) => {
-                logExecution(name, before);
+                const children = popExecutionContext();
+                addLogEntry(buildEntry(name, before, children));
                 return resolved;
+            }).catch((err) => {
+                const children = popExecutionContext();
+                addLogEntry({
+                    ...buildEntry(name, before, children),
+                    error: String(err),
+                });
+                throw err;
             });
         }
-        logExecution(name, before);
+        const children = popExecutionContext();
+        addLogEntry(buildEntry(name, before, children));
         return result;
     };
     return wrapped;

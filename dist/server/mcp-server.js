@@ -30890,26 +30890,57 @@ var formatTime = (ts) => {
   return d.toLocaleTimeString("en-GB", { hour12: false }) + "." + String(d.getMilliseconds()).padStart(3, "0");
 };
 var indent = (s, prefix) => s.split("\n").map((line) => prefix + line).join("\n");
-var formatDiff = (diff) => {
+var formatDiff = (diff, baseIndent) => {
   const before = JSON.stringify(diff.before, null, 2);
   const after = JSON.stringify(diff.after, null, 2);
   return [
-    `  [${diff.atom}]`,
-    `    before:`,
-    indent(before, "      "),
-    `    after:`,
-    indent(after, "      ")
+    `${baseIndent}  [${diff.atom}]`,
+    `${baseIndent}    before:`,
+    indent(before, `${baseIndent}      `),
+    `${baseIndent}    after:`,
+    indent(after, `${baseIndent}      `)
   ].join("\n");
 };
-var formatEntry = (entry, index) => {
+var formatEffect = (entry, index, baseIndent) => {
   const time3 = formatTime(entry.timestamp);
-  const header = `${index + 1}. ${entry.action}  (${time3})`;
-  if (entry.diffs.length === 0) {
-    return `${header}
-  (no state changes)`;
+  const duration3 = entry.duration !== void 0 ? ` ${entry.duration}ms` : "";
+  const header = `${baseIndent}${index + 1}. \u26A1 ${entry.action}${duration3}  (${time3})`;
+  const lines = [header];
+  if (entry.args !== void 0) {
+    lines.push(`${baseIndent}  args: ${JSON.stringify(entry.args)}`);
   }
-  return `${header}
-${entry.diffs.map(formatDiff).join("\n")}`;
+  if (entry.error !== void 0) {
+    lines.push(`${baseIndent}  error: ${entry.error}`);
+  } else if (entry.result !== void 0) {
+    lines.push(`${baseIndent}  result: ${JSON.stringify(entry.result)}`);
+  }
+  return lines.join("\n");
+};
+var formatEntry = (entry, index, depth = 0) => {
+  const baseIndent = "  ".repeat(depth);
+  const time3 = formatTime(entry.timestamp);
+  if (entry.kind === "effect") {
+    return formatEffect(entry, index, baseIndent);
+  }
+  const header = `${baseIndent}${index + 1}. ${entry.action}  (${time3})`;
+  const parts = [header];
+  if (entry.diffs.length === 0 && (!entry.children || entry.children.length === 0)) {
+    parts.push(`${baseIndent}  (no state changes)`);
+  } else {
+    if (entry.diffs.length > 0) {
+      parts.push(entry.diffs.map((d) => formatDiff(d, baseIndent)).join("\n"));
+    }
+  }
+  if (entry.error !== void 0) {
+    parts.push(`${baseIndent}  error: ${entry.error}`);
+  }
+  if (entry.children && entry.children.length > 0) {
+    parts.push(`${baseIndent}  children:`);
+    for (let i = 0; i < entry.children.length; i++) {
+      parts.push(formatEntry(entry.children[i], i, depth + 2));
+    }
+  }
+  return parts.join("\n");
 };
 var changedKeys = (before, after) => {
   if (typeof before !== "object" || typeof after !== "object" || !before || !after) return [];
@@ -30929,8 +30960,11 @@ var summarizeDiff = (diff) => {
 };
 var summarizeLast = (entry) => {
   const time3 = formatTime(entry.timestamp);
+  const kind = entry.kind === "effect" ? "\u26A1 " : "";
   const changes = entry.diffs.map(summarizeDiff).filter(Boolean).join("; ");
-  return `${entry.action} ${changes ? changes + " " : ""}(${time3})`;
+  const childCount = entry.children?.length ?? 0;
+  const childInfo = childCount > 0 ? ` [${childCount} nested]` : "";
+  return `${kind}${entry.action} ${changes ? changes + " " : ""}${childInfo}(${time3})`;
 };
 var formatLogs = (logs) => {
   if (logs.length === 0) return "No action logs recorded.";
@@ -30940,7 +30974,7 @@ var formatLogs = (logs) => {
   return `${summary}
 ${separator}
 
-${logs.map(formatEntry).join("\n\n")}`;
+${logs.map((e, i) => formatEntry(e, i)).join("\n\n")}`;
 };
 
 // src/server/mcp-server.ts

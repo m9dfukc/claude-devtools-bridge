@@ -1,7 +1,12 @@
-// Wraps an action function to capture before/after atom snapshots
+// Wraps an action function to capture before/after atom snapshots with nested tree support
 
-import { getRegisteredAtoms, addLogEntry } from "./action-registry";
-import type { ActionFn, StateDiff } from "./types";
+import {
+    getRegisteredAtoms,
+    addLogEntry,
+    pushExecutionContext,
+    popExecutionContext,
+} from "./action-registry";
+import type { ActionFn, LogEntry, StateDiff } from "./types";
 
 const snapshotAtoms = (): Map<string, unknown> => {
     const snap = new Map<string, unknown>();
@@ -29,32 +34,49 @@ const computeDiffs = (
     return diffs;
 };
 
-const logExecution = (
+const buildEntry = (
     actionName: string,
     before: Map<string, unknown>,
-): void => {
+    children: ReadonlyArray<LogEntry>,
+): LogEntry => {
     const after = snapshotAtoms();
-    addLogEntry({
+    const entry: LogEntry = {
         action: actionName,
         timestamp: Date.now(),
+        kind: "action",
         diffs: computeDiffs(before, after),
-    });
+    };
+    if (children.length > 0) {
+        return { ...entry, children };
+    }
+    return entry;
 };
 
 export const wrapAction = <F extends ActionFn>(name: string, fn: F): F => {
     const wrapped = (...args: readonly unknown[]): unknown => {
         const before = snapshotAtoms();
+        pushExecutionContext();
+
         const result = fn(...args);
 
         // Handle async actions
         if (result instanceof Promise) {
             return result.then((resolved) => {
-                logExecution(name, before);
+                const children = popExecutionContext();
+                addLogEntry(buildEntry(name, before, children));
                 return resolved;
+            }).catch((err: unknown) => {
+                const children = popExecutionContext();
+                addLogEntry({
+                    ...buildEntry(name, before, children),
+                    error: String(err),
+                });
+                throw err;
             });
         }
 
-        logExecution(name, before);
+        const children = popExecutionContext();
+        addLogEntry(buildEntry(name, before, children));
         return result;
     };
     return wrapped as F;

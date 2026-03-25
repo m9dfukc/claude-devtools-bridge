@@ -21,3 +21,6 @@ yarn-debug.log
 
 # TypeScript
 *.tsbuildinfo
+
+# Handoff
+HANDOFF.md

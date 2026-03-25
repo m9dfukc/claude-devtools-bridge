@@ -1,14 +1,21 @@
 // Browser-side WebSocket client that connects to the MCP devtools server
-import { getRegisteredAtoms, getRegisteredActions, getLogs, clearLogs, } from "./action-registry";
+import { getRegisteredAtoms, getRegisteredDerived, getRegisteredActions, getLogs, clearLogs, } from "./action-registry";
 import { safeSerializeValue } from "./safe-serialize";
 const RECONNECT_INTERVAL_MS = 2000;
 const DEFAULT_PORT = 7777;
 const handleGetState = () => {
-    const result = {};
+    const atoms = {};
     for (const [name, atom] of getRegisteredAtoms()) {
-        result[name] = safeSerializeValue(atom.deref());
+        atoms[name] = safeSerializeValue(atom.deref());
     }
-    return result;
+    const derivedMap = getRegisteredDerived();
+    if (derivedMap.size === 0)
+        return atoms;
+    const derived = {};
+    for (const [name, d] of derivedMap) {
+        derived[name] = safeSerializeValue(d.deref());
+    }
+    return { ...atoms, $derived: derived };
 };
 const parseValue = (value) => {
     if (typeof value !== "string")
@@ -21,6 +28,13 @@ const parseValue = (value) => {
     }
 };
 const handleSetState = (path, value) => {
+    // Reject writes to derived state
+    if (getRegisteredDerived().has(path)) {
+        return {
+            success: false,
+            error: `"${path}" is a derived (read-only) value and cannot be set directly.`,
+        };
+    }
     const atoms = getRegisteredAtoms();
     const atom = atoms.get(path);
     if (!atom) {
