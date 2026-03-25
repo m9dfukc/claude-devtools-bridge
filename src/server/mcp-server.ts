@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Standalone Node MCP server — bridges Claude ↔ browser via WebSocket
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
