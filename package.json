@@ -23,7 +23,7 @@
         ".mcp.json"
     ],
     "scripts": {
-        "build": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json",
+        "build": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit && node build-server.js",
         "typecheck": "tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit",
         "devtools": "tsx src/server/mcp-server.ts"
     },
@@ -34,6 +34,7 @@
     },
     "devDependencies": {
         "@types/ws": "^8.18.0",
+        "esbuild": "^0.25.0",
         "tsx": "^4.19.0",
         "typescript": "^5.8.0"
     },
