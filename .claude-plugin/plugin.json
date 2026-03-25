@@ -1,0 +1,8 @@
+{
+    "name": "devtools-bridge",
+    "version": "0.1.0",
+    "description": "MCP devtools bridge — inspect and mutate live application state from Claude via WebSocket",
+    "author": {
+        "name": "m9dfukc"
+    }
+}
