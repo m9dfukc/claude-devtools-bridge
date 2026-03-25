@@ -1,3 +1,23 @@
+# Dependencies
 node_modules/
-dist/
+
+# Vite
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+yarn-error.log
+yarn-debug.log
+
+# TypeScript
 *.tsbuildinfo

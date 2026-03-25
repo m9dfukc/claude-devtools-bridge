@@ -1,0 +1,1 @@
+{"version":3,"file":"devtools-client.d.ts","sourceRoot":"","sources":["../../src/client/devtools-client.ts"],"names":[],"mappings":"AAsGA,MAAM,WAAW,cAAc;IAC3B,QAAQ,CAAC,IAAI,CAAC,EAAE,MAAM,CAAC;CAC1B;AAED,eAAO,MAAM,eAAe,GAAI,UAAU,cAAc,KAAG,CAAC,MAAM,IAAI,CAsDrE,CAAC"}
