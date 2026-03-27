@@ -37,7 +37,7 @@ const connectToRelay = (): void => {
     const socket = new WebSocket(url);
 
     socket.on("open", () => {
-        console.log(`[Devtools Bridge] connected to relay at ${url}`);
+        console.error(`[Devtools Bridge] connected to relay at ${url}`);
         ws = socket;
     });
 
@@ -52,7 +52,7 @@ const connectToRelay = (): void => {
     });
 
     socket.on("close", () => {
-        console.warn("[Devtools Bridge] relay connection closed, reconnecting...");
+        console.error("[Devtools Bridge] relay connection closed, reconnecting...");
         if (ws === socket) ws = null;
         if (!disposed) setTimeout(connectToRelay, RECONNECT_MS);
     });
@@ -267,7 +267,7 @@ server.registerTool("clear_logs", {
 const main = async (): Promise<void> => {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.log("[Devtools Bridge] MCP server running on stdio");
+    console.error("[Devtools Bridge] MCP server running on stdio");
 };
 
 main().catch((e) => {
