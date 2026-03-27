@@ -140,13 +140,13 @@ export const connectDevtools = (options?: ConnectOptions): (() => void) => {
         ws = new WebSocket(`ws://localhost:${port}${path}?role=browser`);
 
         ws.onopen = () => {
-            console.log(`[devtools] connected to ws://localhost:${port}${path}`);
+            console.log(`[Devtools Bridge] connected to ws://localhost:${port}${path}`);
         };
 
         ws.onmessage = (event) => {
             const msg = JSON.parse(event.data as string) as ServerMessage;
             handleMessage(msg, send).catch((err) => {
-                console.error("[devtools] error handling message:", err);
+                console.error("[Devtools Bridge] error handling message:", err);
                 if ("id" in msg) {
                     send({ type: "action_result", id: msg.id, success: false, error: String(err) });
                 }
@@ -154,7 +154,7 @@ export const connectDevtools = (options?: ConnectOptions): (() => void) => {
         };
 
         ws.onclose = () => {
-            console.log("[devtools] disconnected, reconnecting...");
+            console.log("[Devtools Bridge] disconnected, reconnecting...");
             scheduleReconnect();
         };
 

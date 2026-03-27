@@ -31,7 +31,7 @@ export const devtoolsBridgePlugin = (): Plugin => {
                 });
             });
 
-            console.log(`[relay] mounted on path ${RELAY_PATH}`);
+            console.log(`[Devtools Bridge] mounted on path ${RELAY_PATH}`);
         },
         buildEnd() {
             cleanup?.();

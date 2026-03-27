@@ -59,7 +59,7 @@ export const createRelayFromWss = (
         const role = url.searchParams.get("role") as Role | null;
         if (role !== "mcp" && role !== "browser") {
             console.log(
-                `[relay] rejected connection — missing or invalid role param: ${role ?? "none"}`,
+                `[Devtools Bridge] rejected connection — missing or invalid role param: ${role ?? "none"}`,
             );
             ws.close(4000, "Missing ?role=mcp|browser query param");
             return;
@@ -71,7 +71,7 @@ export const createRelayFromWss = (
         }
 
         clients[role] = ws;
-        console.log(`[relay] ${role} client connected`);
+        console.log(`[Devtools Bridge] ${role} client connected`);
 
         // Flush any buffered messages for this role
         flushBuffer(role);
@@ -81,7 +81,7 @@ export const createRelayFromWss = (
         });
 
         ws.on("close", () => {
-            console.log(`[relay] ${role} client disconnected`);
+            console.log(`[Devtools Bridge] ${role} client disconnected`);
             if (clients[role] === ws) {
                 clients[role] = null;
             }
@@ -112,7 +112,7 @@ export const createRelay = (
         path,
     });
 
-    console.log(`[relay] mounted on path ${path}`);
+    console.log(`[Devtools Bridge] mounted on path ${path}`);
     return createRelayFromWss(wss, bufferSize);
 };
 
@@ -127,7 +127,7 @@ export const createStandaloneRelay = (
     const wss = new WebSocketServer({ port, path });
 
     wss.on("listening", () => {
-        console.log(`[relay] standalone server listening on :${port}${path}`);
+        console.log(`[Devtools Bridge] standalone server listening on :${port}${path}`);
     });
 
     return createRelayFromWss(wss, bufferSize);

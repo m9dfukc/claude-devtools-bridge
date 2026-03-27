@@ -15,6 +15,6 @@ import type { ConnectOptions } from "./devtools-client";
  * Connects the WebSocket client and returns a cleanup function.
  */
 export const initDevtools = (options?: ConnectOptions): (() => void) => {
-    console.log("[devtools] initializing MCP devtools bridge");
+    console.log("[Devtools Bridge] initializing MCP devtools bridge");
     return connectDevtools(options);
 };
