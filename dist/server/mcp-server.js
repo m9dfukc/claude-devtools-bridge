@@ -3507,7 +3507,7 @@ var require_schemes = __commonJS({
         serialize: httpSerialize
       }
     );
-    var ws = (
+    var ws2 = (
       /** @type {SchemeHandler} */
       {
         scheme: "ws",
@@ -3520,9 +3520,9 @@ var require_schemes = __commonJS({
       /** @type {SchemeHandler} */
       {
         scheme: "wss",
-        domainHost: ws.domainHost,
-        parse: ws.parse,
-        serialize: ws.serialize
+        domainHost: ws2.domainHost,
+        parse: ws2.parse,
+        serialize: ws2.serialize
       }
     );
     var urn = (
@@ -3548,7 +3548,7 @@ var require_schemes = __commonJS({
       {
         http,
         https,
-        ws,
+        ws: ws2,
         wss,
         urn,
         "urn:uuid": urnuuid
@@ -9906,7 +9906,7 @@ var require_stream = __commonJS({
         this.emit("error", err);
       }
     }
-    function createWebSocketStream2(ws, options) {
+    function createWebSocketStream2(ws2, options) {
       let terminateOnDestroy = true;
       const duplex = new Duplex({
         ...options,
@@ -9915,65 +9915,65 @@ var require_stream = __commonJS({
         objectMode: false,
         writableObjectMode: false
       });
-      ws.on("message", function message(msg, isBinary) {
+      ws2.on("message", function message(msg, isBinary) {
         const data = !isBinary && duplex._readableState.objectMode ? msg.toString() : msg;
-        if (!duplex.push(data)) ws.pause();
+        if (!duplex.push(data)) ws2.pause();
       });
-      ws.once("error", function error2(err) {
+      ws2.once("error", function error2(err) {
         if (duplex.destroyed) return;
         terminateOnDestroy = false;
         duplex.destroy(err);
       });
-      ws.once("close", function close() {
+      ws2.once("close", function close() {
         if (duplex.destroyed) return;
         duplex.push(null);
       });
       duplex._destroy = function(err, callback) {
-        if (ws.readyState === ws.CLOSED) {
+        if (ws2.readyState === ws2.CLOSED) {
           callback(err);
           process.nextTick(emitClose, duplex);
           return;
         }
         let called = false;
-        ws.once("error", function error2(err2) {
+        ws2.once("error", function error2(err2) {
           called = true;
           callback(err2);
         });
-        ws.once("close", function close() {
+        ws2.once("close", function close() {
           if (!called) callback(err);
           process.nextTick(emitClose, duplex);
         });
-        if (terminateOnDestroy) ws.terminate();
+        if (terminateOnDestroy) ws2.terminate();
       };
       duplex._final = function(callback) {
-        if (ws.readyState === ws.CONNECTING) {
-          ws.once("open", function open() {
+        if (ws2.readyState === ws2.CONNECTING) {
+          ws2.once("open", function open() {
             duplex._final(callback);
           });
           return;
         }
-        if (ws._socket === null) return;
-        if (ws._socket._writableState.finished) {
+        if (ws2._socket === null) return;
+        if (ws2._socket._writableState.finished) {
           callback();
           if (duplex._readableState.endEmitted) duplex.destroy();
         } else {
-          ws._socket.once("finish", function finish() {
+          ws2._socket.once("finish", function finish() {
             callback();
           });
-          ws.close();
+          ws2.close();
         }
       };
       duplex._read = function() {
-        if (ws.isPaused) ws.resume();
+        if (ws2.isPaused) ws2.resume();
       };
       duplex._write = function(chunk, encoding, callback) {
-        if (ws.readyState === ws.CONNECTING) {
-          ws.once("open", function open() {
+        if (ws2.readyState === ws2.CONNECTING) {
+          ws2.once("open", function open() {
             duplex._write(chunk, encoding, callback);
           });
           return;
         }
-        ws.send(chunk, callback);
+        ws2.send(chunk, callback);
       };
       duplex.on("end", duplexOnEnd);
       duplex.on("error", duplexOnError);
@@ -10343,12 +10343,12 @@ var require_websocket_server = __commonJS({
           "Connection: Upgrade",
           `Sec-WebSocket-Accept: ${digest}`
         ];
-        const ws = new this.options.WebSocket(null, void 0, this.options);
+        const ws2 = new this.options.WebSocket(null, void 0, this.options);
         if (protocols.size) {
           const protocol = this.options.handleProtocols ? this.options.handleProtocols(protocols, req) : protocols.values().next().value;
           if (protocol) {
             headers.push(`Sec-WebSocket-Protocol: ${protocol}`);
-            ws._protocol = protocol;
+            ws2._protocol = protocol;
           }
         }
         if (extensions[PerMessageDeflate2.extensionName]) {
@@ -10357,26 +10357,26 @@ var require_websocket_server = __commonJS({
             [PerMessageDeflate2.extensionName]: [params]
           });
           headers.push(`Sec-WebSocket-Extensions: ${value}`);
-          ws._extensions = extensions;
+          ws2._extensions = extensions;
         }
         this.emit("headers", headers, req);
         socket.write(headers.concat("\r\n").join("\r\n"));
         socket.removeListener("error", socketOnError);
-        ws.setSocket(socket, head, {
+        ws2.setSocket(socket, head, {
           allowSynchronousEvents: this.options.allowSynchronousEvents,
           maxPayload: this.options.maxPayload,
           skipUTF8Validation: this.options.skipUTF8Validation
         });
         if (this.clients) {
-          this.clients.add(ws);
-          ws.on("close", () => {
-            this.clients.delete(ws);
+          this.clients.add(ws2);
+          ws2.on("close", () => {
+            this.clients.delete(ws2);
             if (this._shouldEmitClose && !this.clients.size) {
               process.nextTick(emitClose, this);
             }
           });
         }
-        cb(ws, req);
+        cb(ws2, req);
       }
     };
     module.exports = WebSocketServer2;
@@ -30979,58 +30979,47 @@ ${logs.map((e, i) => formatEntry(e, i)).join("\n\n")}`;
 
 // src/server/mcp-server.ts
 var TIMEOUT_MS = 1e4;
-var PORT = parseInt(process.env["DEVTOOLS_PORT"] ?? "7777", 10);
-var browserClient = null;
+var RECONNECT_MS = 2e3;
+var PORT = parseInt(process.env["DEVTOOLS_PORT"] ?? "5173", 10);
+var RELAY_PATH = process.env["DEVTOOLS_PATH"] ?? "/devtools-bridge";
+var ws = null;
+var disposed = false;
 var pending = /* @__PURE__ */ new Map();
 var nextId = 0;
 var genId = () => `req_${++nextId}_${Date.now()}`;
-var MAX_RETRIES = 5;
-var RETRY_DELAY_MS = 2e3;
-var bindConnection = (wss) => {
-  wss.on("connection", (ws) => {
-    console.error("[mcp-devtools] browser client connected");
-    browserClient = ws;
-    ws.on("message", (raw) => {
-      const msg = JSON.parse(raw.toString());
-      const entry = pending.get(msg.id);
-      if (entry) {
-        clearTimeout(entry.timer);
-        pending.delete(msg.id);
-        entry.resolve(msg);
-      }
-    });
-    ws.on("close", () => {
-      console.error("[mcp-devtools] browser client disconnected");
-      if (browserClient === ws) browserClient = null;
-    });
+var connectToRelay = () => {
+  if (disposed) return;
+  const url2 = `ws://localhost:${PORT}${RELAY_PATH}?role=mcp`;
+  const socket = new import_websocket.default(url2);
+  socket.on("open", () => {
+    console.error(`[mcp-devtools] connected to relay at ${url2}`);
+    ws = socket;
   });
-};
-var startWebSocket = (attempt = 1) => {
-  const wss = new import_websocket_server.default({ port: PORT });
-  wss.on("listening", () => {
-    console.error(`[mcp-devtools] WebSocket server listening on port ${PORT}`);
-  });
-  wss.on("error", (err) => {
-    if (err.code === "EADDRINUSE" && attempt < MAX_RETRIES) {
-      console.error(
-        `[mcp-devtools] Port ${PORT} in use \u2014 retry ${attempt}/${MAX_RETRIES} in ${RETRY_DELAY_MS}ms...`
-      );
-      wss.close();
-      setTimeout(() => startWebSocket(attempt + 1), RETRY_DELAY_MS);
-    } else {
-      console.error(
-        `[mcp-devtools] WebSocket server failed (${err.code ?? "unknown"}): ${err.message}. MCP tools still available via stdio, but browser bridge is disabled.`
-      );
+  socket.on("message", (raw) => {
+    const msg = JSON.parse(raw.toString());
+    const entry = pending.get(msg.id);
+    if (entry) {
+      clearTimeout(entry.timer);
+      pending.delete(msg.id);
+      entry.resolve(msg);
     }
   });
-  bindConnection(wss);
+  socket.on("close", () => {
+    console.error("[mcp-devtools] relay connection closed, reconnecting...");
+    if (ws === socket) ws = null;
+    if (!disposed) setTimeout(connectToRelay, RECONNECT_MS);
+  });
+  socket.on("error", (err) => {
+    console.error(`[mcp-devtools] relay connection error: ${err.message}`);
+    socket.close();
+  });
 };
-startWebSocket();
+connectToRelay();
 var sendAndWait = (message) => new Promise((resolve, reject) => {
-  if (!browserClient || browserClient.readyState !== import_websocket.default.OPEN) {
+  if (!ws || ws.readyState !== import_websocket.default.OPEN) {
     reject(
       new Error(
-        "No browser client connected. Start the app dev server first."
+        "Not connected to relay. Ensure the dev server is running with the devtools-bridge plugin."
       )
     );
     return;
@@ -31045,7 +31034,7 @@ var sendAndWait = (message) => new Promise((resolve, reject) => {
     resolve,
     timer
   });
-  browserClient.send(JSON.stringify(msg));
+  ws.send(JSON.stringify(msg));
 });
 var server = new McpServer({
   name: "app-devtools",

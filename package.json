@@ -11,6 +11,22 @@
         "./server": {
             "types": "./dist/server/mcp-server.d.ts",
             "import": "./dist/server/mcp-server.js"
+        },
+        "./relay": {
+            "types": "./dist/relay/ws-relay.d.ts",
+            "import": "./dist/relay/ws-relay.js"
+        },
+        "./adapters/vite": {
+            "types": "./dist/adapters/vite.d.ts",
+            "import": "./dist/adapters/vite.js"
+        },
+        "./adapters/node": {
+            "types": "./dist/adapters/node.d.ts",
+            "import": "./dist/adapters/node.js"
+        },
+        "./adapters/standalone": {
+            "types": "./dist/adapters/standalone.d.ts",
+            "import": "./dist/adapters/standalone.js"
         }
     },
     "bin": {
@@ -23,8 +39,8 @@
         ".mcp.json"
     ],
     "scripts": {
-        "build": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit && node build-server.js",
-        "typecheck": "tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+        "build": "tsc -p tsconfig.client.json && tsc -p tsconfig.relay.json && tsc -p tsconfig.server.json --noEmit && node build-server.js",
+        "typecheck": "tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.relay.json --noEmit && tsc -p tsconfig.server.json --noEmit",
         "devtools": "tsx src/server/mcp-server.ts"
     },
     "dependencies": {
@@ -32,7 +48,16 @@
         "ws": "^8.18.0",
         "zod": "^3.24.0"
     },
+    "peerDependencies": {
+        "vite": ">=5.0.0"
+    },
+    "peerDependenciesMeta": {
+        "vite": {
+            "optional": true
+        }
+    },
     "devDependencies": {
+        "vite": "^6.0.0",
         "@types/ws": "^8.18.0",
         "esbuild": "^0.25.0",
         "tsx": "^4.19.0",

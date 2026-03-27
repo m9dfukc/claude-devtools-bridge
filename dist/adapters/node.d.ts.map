@@ -1,0 +1,1 @@
+{"version":3,"file":"node.d.ts","sourceRoot":"","sources":["../../src/adapters/node.ts"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAE,MAAM,IAAI,UAAU,EAAE,MAAM,WAAW,CAAC;AAGtD,eAAO,MAAM,mBAAmB,GAAI,YAAY,UAAU,KAAG;IAAE,KAAK,IAAI,IAAI,CAAA;CACjD,CAAC"}

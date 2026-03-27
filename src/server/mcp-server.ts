@@ -1,18 +1,25 @@
-// Standalone Node MCP server — bridges Claude ↔ browser via WebSocket
+// Standalone Node MCP server — bridges Claude ↔ browser via WebSocket relay
+//
+// The MCP server connects as a WebSocket CLIENT to a relay hosted by the
+// dev server (Vite, Express, etc.). This allows it to work inside Claude
+// Code's sandbox, which blocks port binding but allows outbound connections.
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { WebSocketServer, WebSocket } from "ws";
+import { WebSocket } from "ws";
 import { z } from "zod";
 import { formatLogs } from "./format-logs";
 import type { ClientMessage, LogEntry } from "../client/types";
 
 const TIMEOUT_MS = 10_000;
-const PORT = parseInt(process.env["DEVTOOLS_PORT"] ?? "7777", 10);
+const RECONNECT_MS = 2_000;
+const PORT = parseInt(process.env["DEVTOOLS_PORT"] ?? "5173", 10);
+const RELAY_PATH = process.env["DEVTOOLS_PATH"] ?? "/devtools-bridge";
 
-// --- WebSocket state ---
+// --- WebSocket client state ---
 
-let browserClient: WebSocket | null = null;
+let ws: WebSocket | null = null;
+let disposed = false;
 const pending = new Map<
     string,
     { resolve: (data: unknown) => void; timer: ReturnType<typeof setTimeout> }
@@ -21,70 +28,52 @@ const pending = new Map<
 let nextId = 0;
 const genId = (): string => `req_${++nextId}_${Date.now()}`;
 
-// --- WebSocket server ---
+// --- Connect to relay as WS client ---
 
-const MAX_RETRIES = 5;
-const RETRY_DELAY_MS = 2000;
+const connectToRelay = (): void => {
+    if (disposed) return;
 
-const bindConnection = (wss: InstanceType<typeof WebSocketServer>): void => {
-    wss.on("connection", (ws) => {
-        console.error("[mcp-devtools] browser client connected");
-        browserClient = ws;
+    const url = `ws://localhost:${PORT}${RELAY_PATH}?role=mcp`;
+    const socket = new WebSocket(url);
 
-        ws.on("message", (raw) => {
-            const msg = JSON.parse(raw.toString()) as ClientMessage;
-            const entry = pending.get(msg.id);
-            if (entry) {
-                clearTimeout(entry.timer);
-                pending.delete(msg.id);
-                entry.resolve(msg);
-            }
-        });
-
-        ws.on("close", () => {
-            console.error("[mcp-devtools] browser client disconnected");
-            if (browserClient === ws) browserClient = null;
-        });
-    });
-};
-
-const startWebSocket = (attempt = 1): void => {
-    const wss = new WebSocketServer({ port: PORT });
-
-    wss.on("listening", () => {
-        console.error(`[mcp-devtools] WebSocket server listening on port ${PORT}`);
+    socket.on("open", () => {
+        console.error(`[mcp-devtools] connected to relay at ${url}`);
+        ws = socket;
     });
 
-    wss.on("error", (err: NodeJS.ErrnoException) => {
-        if (err.code === "EADDRINUSE" && attempt < MAX_RETRIES) {
-            console.error(
-                `[mcp-devtools] Port ${PORT} in use — retry ${attempt}/${MAX_RETRIES} in ${RETRY_DELAY_MS}ms...`,
-            );
-            wss.close();
-            setTimeout(() => startWebSocket(attempt + 1), RETRY_DELAY_MS);
-        } else {
-            // EPERM (sandbox), EACCES, or exhausted retries — log but don't crash.
-            // The MCP stdio server stays alive; WebSocket features are unavailable.
-            console.error(
-                `[mcp-devtools] WebSocket server failed (${err.code ?? "unknown"}): ${err.message}. ` +
-                    "MCP tools still available via stdio, but browser bridge is disabled.",
-            );
+    socket.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString()) as ClientMessage;
+        const entry = pending.get(msg.id);
+        if (entry) {
+            clearTimeout(entry.timer);
+            pending.delete(msg.id);
+            entry.resolve(msg);
         }
     });
 
-    bindConnection(wss);
+    socket.on("close", () => {
+        console.error("[mcp-devtools] relay connection closed, reconnecting...");
+        if (ws === socket) ws = null;
+        if (!disposed) setTimeout(connectToRelay, RECONNECT_MS);
+    });
+
+    socket.on("error", (err) => {
+        // Log but don't crash — close event handles reconnect
+        console.error(`[mcp-devtools] relay connection error: ${err.message}`);
+        socket.close();
+    });
 };
 
-startWebSocket();
+connectToRelay();
 
 // --- Helpers ---
 
 const sendAndWait = <T>(message: Record<string, unknown>): Promise<T> =>
     new Promise((resolve, reject) => {
-        if (!browserClient || browserClient.readyState !== WebSocket.OPEN) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
             reject(
                 new Error(
-                    "No browser client connected. Start the app dev server first.",
+                    "Not connected to relay. Ensure the dev server is running with the devtools-bridge plugin.",
                 ),
             );
             return;
@@ -103,7 +92,7 @@ const sendAndWait = <T>(message: Record<string, unknown>): Promise<T> =>
             timer,
         });
 
-        browserClient.send(JSON.stringify(msg));
+        ws.send(JSON.stringify(msg));
     });
 
 // --- MCP server ---
@@ -275,7 +264,7 @@ server.registerTool("clear_logs", {
 
 // --- Start ---
 
-const main = async () => {
+const main = async (): Promise<void> => {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("[mcp-devtools] MCP server running on stdio");

@@ -2,7 +2,8 @@
 import { getRegisteredAtoms, getRegisteredDerived, getRegisteredActions, getLogs, clearLogs, } from "./action-registry";
 import { safeSerializeValue } from "./safe-serialize";
 const RECONNECT_INTERVAL_MS = 2000;
-const DEFAULT_PORT = 7777;
+const DEFAULT_PORT = 5173;
+const DEFAULT_PATH = "/devtools-bridge";
 const handleGetState = () => {
     const atoms = {};
     for (const [name, atom] of getRegisteredAtoms()) {
@@ -88,6 +89,7 @@ const handleMessage = async (msg, send) => {
 };
 export const connectDevtools = (options) => {
     const port = options?.port ?? DEFAULT_PORT;
+    const path = options?.path ?? DEFAULT_PATH;
     let ws = null;
     let reconnectTimer = null;
     let disposed = false;
@@ -99,9 +101,9 @@ export const connectDevtools = (options) => {
     const connect = () => {
         if (disposed)
             return;
-        ws = new WebSocket(`ws://localhost:${port}`);
+        ws = new WebSocket(`ws://localhost:${port}${path}?role=browser`);
         ws.onopen = () => {
-            console.log(`[devtools] connected to ws://localhost:${port}`);
+            console.log(`[devtools] connected to ws://localhost:${port}${path}`);
         };
         ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);

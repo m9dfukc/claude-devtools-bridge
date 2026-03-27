@@ -11,7 +11,8 @@ import { safeSerializeValue } from "./safe-serialize";
 import type { ServerMessage } from "./types";
 
 const RECONNECT_INTERVAL_MS = 2000;
-const DEFAULT_PORT = 7777;
+const DEFAULT_PORT = 5173;
+const DEFAULT_PATH = "/devtools-bridge";
 
 const handleGetState = (): Record<string, unknown> => {
     const atoms: Record<string, unknown> = {};
@@ -117,10 +118,12 @@ const handleMessage = async (
 
 export interface ConnectOptions {
     readonly port?: number;
+    readonly path?: string;
 }
 
 export const connectDevtools = (options?: ConnectOptions): (() => void) => {
     const port = options?.port ?? DEFAULT_PORT;
+    const path = options?.path ?? DEFAULT_PATH;
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
@@ -134,10 +137,10 @@ export const connectDevtools = (options?: ConnectOptions): (() => void) => {
     const connect = (): void => {
         if (disposed) return;
 
-        ws = new WebSocket(`ws://localhost:${port}`);
+        ws = new WebSocket(`ws://localhost:${port}${path}?role=browser`);
 
         ws.onopen = () => {
-            console.log(`[devtools] connected to ws://localhost:${port}`);
+            console.log(`[devtools] connected to ws://localhost:${port}${path}`);
         };
 
         ws.onmessage = (event) => {

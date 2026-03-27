@@ -7,23 +7,37 @@ Works with any JavaScript framework — register your state containers and actio
 ## How it works
 
 ```
-Browser App                    Node MCP Server              Claude
-┌──────────┐   WebSocket    ┌──────────────┐    stdio    ┌────────┐
-│ Client   │◄──────────────►│ mcp-server   │◄───────────►│ Claude │
-│          │  port 7777     │              │    MCP      │  Code  │
-│ atoms    │                │ get_state    │             │        │
-│ derived  │                │ set_state    │             │        │
-│ actions  │                │ trigger_action             │        │
-│ effects  │                │ get_logs     │             │        │
-│ logs     │                │ clear_logs   │             │        │
-└──────────┘                └──────────────┘             └────────┘
+Dev Server (Vite / Express / standalone)
+┌─────────────────────────────────────────────┐
+│                WebSocket Relay               │
+│             /devtools-bridge                 │
+│         ┌──────────┴──────────┐              │
+│         ▼                     ▼              │
+│   ?role=browser          ?role=mcp           │
+└────────┬──────────────────────┬──────────────┘
+         │                      │
+    WS client              WS client
+         │                      │
+┌────────┴───┐          ┌───────┴──────┐    stdio    ┌────────┐
+│ Browser App│          │  MCP Server  │◄───────────►│ Claude │
+│            │          │              │    MCP      │  Code  │
+│ atoms      │          │ get_state    │             │        │
+│ derived    │          │ set_state    │             │        │
+│ actions    │          │ trigger_action             │        │
+│ effects    │          │ get_logs     │             │        │
+│ logs       │          │ clear_logs   │             │        │
+└────────────┘          └──────────────┘             └────────┘
 ```
 
-The **client** runs in your browser app and holds registered state containers and actions. The **MCP server** runs as a Node process, bridges WebSocket to MCP stdio, and exposes 5 tools that Claude can call.
+Both the **browser client** and the **MCP server** connect as WebSocket clients to a relay hosted by your dev server. The relay forwards messages between them.
+
+### Why this architecture?
+
+When Claude Code's sandbox is enabled, MCP servers run as sandboxed subprocesses that cannot bind ports (`bind()` is blocked by Seatbelt) but can make outbound connections to `localhost`. By hosting the WebSocket relay on the dev server (which runs outside the sandbox) and having the MCP server connect as a client, the bridge works regardless of whether the sandbox is enabled or not — no special permissions needed.
 
 ## Setup
 
-There are two parts: the **client** (runs in your browser app) and the **MCP server** (gives Claude the tools). You can set these up as a Claude Code plugin, as a standalone MCP server, or both.
+There are two parts: the **client** (runs in your browser app) and the **MCP server** (gives Claude the tools). You also need to mount the **relay** on your dev server.
 
 ### Option A: Claude Code plugin (recommended)
 
@@ -60,7 +74,40 @@ pnpm add -D claude-devtools-bridge@github:m9dfukc/claude-devtools-bridge
 yarn add -D claude-devtools-bridge@m9dfukc/claude-devtools-bridge @modelcontextprotocol/sdk
 ```
 
-**3. Register state and actions** in your app:
+**3. Mount the relay** on your dev server:
+
+#### Vite
+
+```ts
+// vite.config.ts
+import { devtoolsBridgePlugin } from "claude-devtools-bridge/adapters/vite";
+
+export default defineConfig({
+    plugins: [
+        devtoolsBridgePlugin(),
+        // ... other plugins
+    ],
+});
+```
+
+#### Express / Koa / any Node http.Server
+
+```ts
+import { mountDevtoolsBridge } from "claude-devtools-bridge/adapters/node";
+
+const server = app.listen(3000);
+mountDevtoolsBridge(server);
+```
+
+#### Standalone (no dev server)
+
+```ts
+import { startDevtoolsBridge } from "claude-devtools-bridge/adapters/standalone";
+
+startDevtoolsBridge(5173); // creates its own HTTP server
+```
+
+**4. Register state and actions** in your app:
 
 ```ts
 import {
@@ -100,11 +147,11 @@ const fetchItems = wrapEffect("api.fetchItems", async (query: string) => {
     return res.json();
 });
 
-// Connect (returns a cleanup function)
-const cleanup = initDevtools({ port: 7777 });
+// Connect to the relay on your dev server port
+const cleanup = initDevtools({ port: 5173 });
 ```
 
-**4. Start your app and Claude Code.** The plugin provides the MCP server automatically — Claude gets 5 tools plus the `devtools-bridge` skill.
+**5. Start your app and Claude Code.** The plugin provides the MCP server automatically — Claude gets 5 tools plus the `devtools-bridge` skill.
 
 ### Option B: Standalone MCP server
 
@@ -112,22 +159,27 @@ If you don't want the plugin, add the MCP server manually.
 
 **1. Install the package** as a dev dependency (same as above).
 
-**2. Add the MCP server** to your project's `.mcp.json`:
+**2. Mount the relay** on your dev server (same as Option A, step 3).
+
+**3. Add the MCP server** to your project's `.mcp.json`:
 
 ```json
 {
     "mcpServers": {
         "devtools-bridge": {
             "command": "node",
-            "args": ["node_modules/claude-devtools-bridge/dist/server/mcp-server.js"]
+            "args": ["node_modules/claude-devtools-bridge/dist/server/mcp-server.js"],
+            "env": {
+                "DEVTOOLS_PORT": "5173"
+            }
         }
     }
 }
 ```
 
-**3. Register state and actions** in your app (same as Option A, step 3).
+**4. Register state and actions** in your app (same as Option A, step 4).
 
-**4. Start your app and Claude Code.** Claude gets the 5 MCP tools but not the skill — you'd need to add that manually if desired.
+**5. Start your app and Claude Code.** Claude gets the 5 MCP tools but not the skill — you'd need to add that manually if desired.
 
 ## MCP tools
 
@@ -286,16 +338,33 @@ const fetchData = wrapEffect("api.fetchData", async (url: string) => {
 });
 ```
 
-Effects log: name, args, result/error, and duration (ms). They appear in `get_logs` output with an ⚡ prefix alongside action logs.
+Effects log: name, args, result/error, and duration (ms). They appear in `get_logs` output with a lightning prefix alongside action logs.
 
 ## Configuration
 
-### WebSocket port
+### Dev server port
 
-Default: `7777`. Override via:
+The MCP server and browser client both connect to the relay on your dev server. Default port: `5173` (Vite's default).
 
-- **Client:** `initDevtools({ port: 8888 })`
-- **Server:** `DEVTOOLS_PORT=8888` environment variable
+- **Client:** `initDevtools({ port: 3000 })` — set to your dev server port
+- **Server:** `DEVTOOLS_PORT=3000` environment variable (in `.mcp.json` or shell)
+- **Relay path:** `/devtools-bridge` by default (configurable via adapter options)
+
+### Migration from v0.1.x (port 7777 architecture)
+
+The previous architecture had the MCP server binding port 7777 as a WebSocket server. The new architecture flips the connection direction:
+
+| Before | After |
+|--------|-------|
+| MCP server binds `:7777` | Dev server hosts relay on its port |
+| Browser connects to `:7777` | Browser connects to dev server `/devtools-bridge?role=browser` |
+| `DEVTOOLS_PORT=7777` | `DEVTOOLS_PORT=5173` (your dev server port) |
+| No dev server integration needed | Mount relay via adapter (Vite plugin, etc.) |
+
+**To migrate:**
+1. Add the relay adapter to your dev server config (see Setup step 3)
+2. Change `initDevtools({ port: 7777 })` to `initDevtools({ port: 5173 })` (or your dev server port)
+3. Update `DEVTOOLS_PORT` in your `.mcp.json` if set
 
 ## License
 
