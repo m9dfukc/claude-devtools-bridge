@@ -37,7 +37,7 @@ const connectToRelay = (): void => {
     const socket = new WebSocket(url);
 
     socket.on("open", () => {
-        console.error(`[mcp-devtools] connected to relay at ${url}`);
+        console.log(`[mcp-devtools] connected to relay at ${url}`);
         ws = socket;
     });
 
@@ -52,7 +52,7 @@ const connectToRelay = (): void => {
     });
 
     socket.on("close", () => {
-        console.error("[mcp-devtools] relay connection closed, reconnecting...");
+        console.warn("[mcp-devtools] relay connection closed, reconnecting...");
         if (ws === socket) ws = null;
         if (!disposed) setTimeout(connectToRelay, RECONNECT_MS);
     });
@@ -99,7 +99,7 @@ const sendAndWait = <T>(message: Record<string, unknown>): Promise<T> =>
 
 const server = new McpServer({
     name: "app-devtools",
-    version: "0.2.1",
+    version: "0.2.2",
 });
 
 server.registerTool("get_state", {
@@ -267,7 +267,7 @@ server.registerTool("clear_logs", {
 const main = async (): Promise<void> => {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("[mcp-devtools] MCP server running on stdio");
+    console.log("[mcp-devtools] MCP server running on stdio");
 };
 
 main().catch((e) => {
