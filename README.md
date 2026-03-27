@@ -155,7 +155,7 @@ const cleanup = initDevtools({ port: 5173 });
 
 ### Option B: Standalone MCP server
 
-If you don't want the plugin, add the MCP server manually.
+If you don't want the plugin, add the MCP server manually. You'll get the 5 MCP tools, but Claude won't have the `devtools-bridge` skill — which teaches it registration conventions (dot-notation naming, `wrapAction`/`wrapEffect` patterns, dev-mode gating), MCP tool usage guidance, and anti-patterns (e.g. don't register non-serializable state).
 
 **1. Install the package** as a dev dependency (same as above).
 

@@ -48,7 +48,7 @@ const fetchItems = wrapEffect("api.fetchItems", async (query: string) => {
 });
 
 // Connect the WebSocket client
-const cleanup = initDevtools({ port: 7777 });
+const cleanup = initDevtools({ port: 5173 });
 ```
 
 ## The Watchable Interface
