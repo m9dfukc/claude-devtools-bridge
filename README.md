@@ -350,6 +350,16 @@ The MCP server and browser client both connect to the relay on your dev server. 
 - **Server:** `DEVTOOLS_PORT=3000` environment variable (in `.mcp.json` or shell)
 - **Relay path:** `/devtools-bridge` by default (configurable via adapter options)
 
+### Migration from v0.2.0
+
+The Vite plugin was rewritten to use `noServer` mode for its internal WebSocket. This fixes an infinite page reload loop when used alongside other Vite plugins that hook into `transformIndexHtml` (e.g. `vite-plugin-mcp-client-tools`).
+
+**No code changes required** — `devtoolsBridgePlugin()` has the same API. Just upgrade the package.
+
+If you added an inline workaround in your `vite.config.ts` to avoid the reload loop, you can now remove it and use the library's plugin directly again.
+
+Additionally, `createRelayFromWss` is now exported from `claude-devtools-bridge/relay` for advanced use cases where you need to provide your own `WebSocketServer` instance.
+
 ### Migration from v0.1.x (port 7777 architecture)
 
 The previous architecture had the MCP server binding port 7777 as a WebSocket server. The new architecture flips the connection direction:

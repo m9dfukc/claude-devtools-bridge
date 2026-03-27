@@ -31038,7 +31038,7 @@ var sendAndWait = (message) => new Promise((resolve, reject) => {
 });
 var server = new McpServer({
   name: "app-devtools",
-  version: "0.1.0"
+  version: "0.2.1"
 });
 server.registerTool("get_state", {
   description: "Get a snapshot of all registered state containers in the running app",

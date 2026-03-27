@@ -99,7 +99,7 @@ const sendAndWait = <T>(message: Record<string, unknown>): Promise<T> =>
 
 const server = new McpServer({
     name: "app-devtools",
-    version: "0.2.0",
+    version: "0.2.1",
 });
 
 server.registerTool("get_state", {

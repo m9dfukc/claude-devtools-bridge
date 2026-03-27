@@ -17,9 +17,9 @@ interface Relay {
 const DEFAULT_PATH = "/devtools-bridge";
 const DEFAULT_BUFFER_SIZE = 50;
 
-const createRelayFromWss = (
+export const createRelayFromWss = (
     wss: WebSocketServer,
-    bufferSize: number,
+    bufferSize: number = DEFAULT_BUFFER_SIZE,
 ): Relay => {
     const clients: Record<Role, WebSocket | null> = {
         mcp: null,

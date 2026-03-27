@@ -2,7 +2,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 const DEFAULT_PATH = "/devtools-bridge";
 const DEFAULT_BUFFER_SIZE = 50;
-const createRelayFromWss = (wss, bufferSize) => {
+export const createRelayFromWss = (wss, bufferSize = DEFAULT_BUFFER_SIZE) => {
     const clients = {
         mcp: null,
         browser: null,
