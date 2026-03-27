@@ -25,7 +25,7 @@ export const devtoolsBridgePlugin = () => {
                     wss.emit("connection", ws, req);
                 });
             });
-            console.error(`[relay] mounted on path ${RELAY_PATH}`);
+            console.log(`[relay] mounted on path ${RELAY_PATH}`);
         },
         buildEnd() {
             cleanup?.();

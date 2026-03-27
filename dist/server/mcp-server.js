@@ -30992,7 +30992,7 @@ var connectToRelay = () => {
   const url2 = `ws://localhost:${PORT}${RELAY_PATH}?role=mcp`;
   const socket = new import_websocket.default(url2);
   socket.on("open", () => {
-    console.error(`[mcp-devtools] connected to relay at ${url2}`);
+    console.log(`[mcp-devtools] connected to relay at ${url2}`);
     ws = socket;
   });
   socket.on("message", (raw) => {
@@ -31005,7 +31005,7 @@ var connectToRelay = () => {
     }
   });
   socket.on("close", () => {
-    console.error("[mcp-devtools] relay connection closed, reconnecting...");
+    console.warn("[mcp-devtools] relay connection closed, reconnecting...");
     if (ws === socket) ws = null;
     if (!disposed) setTimeout(connectToRelay, RECONNECT_MS);
   });
@@ -31038,7 +31038,7 @@ var sendAndWait = (message) => new Promise((resolve, reject) => {
 });
 var server = new McpServer({
   name: "app-devtools",
-  version: "0.2.1"
+  version: "0.2.2"
 });
 server.registerTool("get_state", {
   description: "Get a snapshot of all registered state containers in the running app",
@@ -31181,7 +31181,7 @@ server.registerTool("clear_logs", {
 var main = async () => {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("[mcp-devtools] MCP server running on stdio");
+  console.log("[mcp-devtools] MCP server running on stdio");
 };
 main().catch((e) => {
   console.error("[mcp-devtools] Fatal error:", e);
