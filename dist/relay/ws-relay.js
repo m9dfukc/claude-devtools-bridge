@@ -37,7 +37,7 @@ export const createRelayFromWss = (wss, bufferSize = DEFAULT_BUFFER_SIZE) => {
         const url = new URL(req.url ?? "/", "http://localhost");
         const role = url.searchParams.get("role");
         if (role !== "mcp" && role !== "browser") {
-            console.log(`[relay] rejected connection — missing or invalid role param: ${role ?? "none"}`);
+            console.log(`[Devtools Bridge] rejected connection — missing or invalid role param: ${role ?? "none"}`);
             ws.close(4000, "Missing ?role=mcp|browser query param");
             return;
         }
@@ -46,14 +46,14 @@ export const createRelayFromWss = (wss, bufferSize = DEFAULT_BUFFER_SIZE) => {
             clients[role].close(4001, "Replaced by new connection");
         }
         clients[role] = ws;
-        console.log(`[relay] ${role} client connected`);
+        console.log(`[Devtools Bridge] ${role} client connected`);
         // Flush any buffered messages for this role
         flushBuffer(role);
         ws.on("message", (raw) => {
             forward(role, raw.toString());
         });
         ws.on("close", () => {
-            console.log(`[relay] ${role} client disconnected`);
+            console.log(`[Devtools Bridge] ${role} client disconnected`);
             if (clients[role] === ws) {
                 clients[role] = null;
             }
@@ -77,7 +77,7 @@ export const createRelay = (httpServer, options) => {
         server: httpServer,
         path,
     });
-    console.log(`[relay] mounted on path ${path}`);
+    console.log(`[Devtools Bridge] mounted on path ${path}`);
     return createRelayFromWss(wss, bufferSize);
 };
 /** Standalone mode — creates its own HTTP server */
@@ -86,7 +86,7 @@ export const createStandaloneRelay = (port, options) => {
     const bufferSize = options?.bufferSize ?? DEFAULT_BUFFER_SIZE;
     const wss = new WebSocketServer({ port, path });
     wss.on("listening", () => {
-        console.log(`[relay] standalone server listening on :${port}${path}`);
+        console.log(`[Devtools Bridge] standalone server listening on :${port}${path}`);
     });
     return createRelayFromWss(wss, bufferSize);
 };
