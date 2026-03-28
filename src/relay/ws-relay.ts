@@ -71,7 +71,7 @@ export const createRelayFromWss = (
         }
 
         clients[role] = ws;
-        console.log(`[Devtools Bridge] ${role} client connected`);
+        if (role === "mcp") console.log(`[Devtools Bridge] ${role} client connected`);
 
         // Flush any buffered messages for this role
         flushBuffer(role);
@@ -81,7 +81,7 @@ export const createRelayFromWss = (
         });
 
         ws.on("close", () => {
-            console.log(`[Devtools Bridge] ${role} client disconnected`);
+            if (role === "mcp") console.log(`[Devtools Bridge] ${role} client disconnected`);
             if (clients[role] === ws) {
                 clients[role] = null;
             }

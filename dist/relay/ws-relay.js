@@ -46,14 +46,16 @@ export const createRelayFromWss = (wss, bufferSize = DEFAULT_BUFFER_SIZE) => {
             clients[role].close(4001, "Replaced by new connection");
         }
         clients[role] = ws;
-        console.log(`[Devtools Bridge] ${role} client connected`);
+        if (role === "mcp")
+            console.log(`[Devtools Bridge] ${role} client connected`);
         // Flush any buffered messages for this role
         flushBuffer(role);
         ws.on("message", (raw) => {
             forward(role, raw.toString());
         });
         ws.on("close", () => {
-            console.log(`[Devtools Bridge] ${role} client disconnected`);
+            if (role === "mcp")
+                console.log(`[Devtools Bridge] ${role} client disconnected`);
             if (clients[role] === ws) {
                 clients[role] = null;
             }

@@ -115,7 +115,6 @@ export const connectDevtools = (options) => {
             });
         };
         ws.onclose = () => {
-            console.log("[Devtools Bridge] disconnected, reconnecting...");
             scheduleReconnect();
         };
         ws.onerror = () => {

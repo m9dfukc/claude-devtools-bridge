@@ -154,7 +154,6 @@ export const connectDevtools = (options?: ConnectOptions): (() => void) => {
         };
 
         ws.onclose = () => {
-            console.log("[Devtools Bridge] disconnected, reconnecting...");
             scheduleReconnect();
         };
 
