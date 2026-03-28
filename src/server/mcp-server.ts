@@ -51,9 +51,13 @@ const connectToRelay = (): void => {
         }
     });
 
-    socket.on("close", () => {
-        console.error("[Devtools Bridge] relay connection closed, reconnecting...");
+    socket.on("close", (code) => {
         if (ws === socket) ws = null;
+        if (code === 4001) {
+            console.error("[Devtools Bridge] replaced by another MCP instance, not reconnecting");
+            return;
+        }
+        console.error("[Devtools Bridge] relay connection closed, reconnecting...");
         if (!disposed) setTimeout(connectToRelay, RECONNECT_MS);
     });
 
@@ -99,7 +103,7 @@ const sendAndWait = <T>(message: Record<string, unknown>): Promise<T> =>
 
 const server = new McpServer({
     name: "app-devtools",
-    version: "0.2.3",
+    version: "0.2.4",
 });
 
 server.registerTool("get_state", {

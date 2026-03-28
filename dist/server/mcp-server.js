@@ -31004,9 +31004,13 @@ var connectToRelay = () => {
       entry.resolve(msg);
     }
   });
-  socket.on("close", () => {
-    console.error("[Devtools Bridge] relay connection closed, reconnecting...");
+  socket.on("close", (code) => {
     if (ws === socket) ws = null;
+    if (code === 4001) {
+      console.error("[Devtools Bridge] replaced by another MCP instance, not reconnecting");
+      return;
+    }
+    console.error("[Devtools Bridge] relay connection closed, reconnecting...");
     if (!disposed) setTimeout(connectToRelay, RECONNECT_MS);
   });
   socket.on("error", (err) => {
@@ -31038,7 +31042,7 @@ var sendAndWait = (message) => new Promise((resolve, reject) => {
 });
 var server = new McpServer({
   name: "app-devtools",
-  version: "0.2.3"
+  version: "0.2.4"
 });
 server.registerTool("get_state", {
   description: "Get a snapshot of all registered state containers in the running app",
