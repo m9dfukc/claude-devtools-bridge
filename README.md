@@ -205,18 +205,9 @@ Once connected, Claude has access to:
 | `get_logs` | View recent action/effect logs with diffs and tree structure |
 | `clear_logs` | Reset the log buffer |
 
-## The Watchable interface
+## Framework adapters
 
-The bridge works with any state container that implements two methods:
-
-```ts
-interface Watchable<T> {
-    deref(): T;        // read current value
-    reset(val: T): void; // replace value
-}
-```
-
-### Framework adapters
+The bridge works with any state container that implements `deref()` (read) and `reset(val)` (write):
 
 **@thi.ng/atom** — works out of the box:
 ```ts
@@ -332,7 +323,7 @@ Effects log: name, args, result/error, and duration (ms). They appear in `get_lo
 
 ## Teardown and unregistration
 
-`register*` functions return a `DisposeFn` that removes the entry from the registry. This is the recommended cleanup pattern — like React's `useEffect` return:
+`register*` functions return a `DisposeFn` that removes the entry from the registry. Collect them for cleanup:
 
 ```ts
 import type { DisposeFn } from "claude-devtools-bridge";
@@ -356,22 +347,7 @@ unregisterAction("plugin/process");
 unregisterDerived("plugin/computed");
 ```
 
-### React useEffect
-
-```ts
-useEffect(() => {
-    const disposers = [
-        registerAtom("app", { deref: () => store.getState(), reset: store.setState }),
-        registerAction("app.increment", wrapAction("app.increment", increment)),
-    ];
-    const disconnect = initDevtools();
-
-    return () => {
-        disposers.forEach((d) => d());
-        disconnect();
-    };
-}, []);
-```
+The same pattern works in any framework's lifecycle hooks — register on mount, dispose on unmount/cleanup.
 
 ### API
 
@@ -390,15 +366,7 @@ The disposer only removes the bridge's reference — it does **not** touch the u
 
 ## Dynamic components
 
-In apps where components mount and unmount at runtime (SPA pages, lazy-loaded modules, plugin systems), co-locate registrations with the lifecycle that owns the state.
-
-### Rule of thumb
-
-- **Register where the state is created.** If a page component creates local state on mount, register it there.
-- **Dispose where the state is destroyed.** Unmount, route change, module unload — call the disposers.
-- **Namespace keys by component.** Use prefixes like `"cart/state"`, `"profile/actions"` to avoid collisions and make it clear what belongs to what.
-
-### Page-level registration
+In apps where components mount and unmount at runtime (SPA pages, lazy-loaded modules, plugin systems), namespace keys by component (e.g. `"cart/state"`, `"profile/actions"`) and co-locate registrations with the lifecycle that owns the state:
 
 ```ts
 // pages/cart.ts
@@ -416,21 +384,15 @@ const mountCart = () => {
 };
 ```
 
-When the user navigates away, `teardown()` removes the cart entries. The next page registers its own state under its own namespace. Claude's `get_state` always reflects what's currently mounted.
+When the user navigates away, `teardown()` removes the cart entries. Claude's `get_state` always reflects what's currently mounted.
 
-### Atoms vs actions
-
-Atom registrations are lazy — `deref()` reads the current value at query time, so you can register once even if the data shape changes. Actions are closures that capture references at registration time. If a reference dies (e.g. a stream is torn down), the action breaks. Register actions in the same scope as the references they close over, and dispose them together.
-
-### System-level state
-
-For state that lives for the full app session (auth, theme, top-level store), register once at startup. No re-registration needed when the data inside changes — `deref()` always returns the current value.
+**Atoms vs actions:** Atom registrations are lazy — `deref()` reads the current value at query time, so you can register once even if the data shape changes. Actions are closures that capture references at registration time. If a reference dies (e.g. a stream is torn down), the action breaks. Register actions in the same scope as the references they close over, and dispose them together.
 
 ## Dev-only usage
 
-`wrapAction` and `wrapEffect` are transparent — same signature in, same return value out. Without `initDevtools()`, no WebSocket opens and Claude has no access. But the wrappers still do work: `wrapAction` runs `structuredClone` on all registered atoms before and after each call, and both push entries into a bounded log buffer (capped at 1000). This overhead is negligible for most apps but isn't zero.
+`wrapAction` and `wrapEffect` are transparent wrappers — same signature in, same return value out. Without `initDevtools()`, no WebSocket opens, but the wrappers still run `structuredClone` snapshots and push to a bounded log buffer (capped at 1000). This overhead is negligible but isn't zero.
 
-**What to gate:** At minimum, gate `initDevtools()` — without it there's no connection, but wrappers still run. For zero overhead in production, gate the entire import so the module is tree-shaken out:
+For zero overhead in production, gate the entire import behind `import.meta.env.DEV` so the module is tree-shaken out:
 
 ```ts
 if (import.meta.env.DEV) {
@@ -445,7 +407,7 @@ if (import.meta.env.DEV) {
 }
 ```
 
-The dynamic `import()` behind `import.meta.env.DEV` lets Vite (and other bundlers) eliminate the entire module from the production build. For apps with many components that each register state, consider centralizing the dev check in a single module that re-exports the bridge functions (or no-op passthroughs in production) — this avoids scattering `if (DEV)` checks across your codebase.
+For apps with many components that each register state, consider centralizing the dev check in a single module that re-exports the bridge functions (or no-op passthroughs in production) — this avoids scattering `if (DEV)` checks across your codebase.
 
 ## Configuration
 
@@ -457,48 +419,13 @@ The MCP server and browser client both connect to the relay on your dev server. 
 - **Server:** `DEVTOOLS_PORT=3000` environment variable (in `.mcp.json` or shell)
 - **Relay path:** `/devtools-bridge` by default (configurable via adapter options)
 
-### Migration from v0.2.x
+### Migration
 
-v0.3.0 adds granular unregistration. `registerAtom`, `registerAction`, and `registerDerived` now return a `DisposeFn` instead of `void`. Three new exports are available: `unregisterAtom`, `unregisterAction`, `unregisterDerived`, plus the `DisposeFn` type.
+**From v0.2.x:** No breaking changes. `register*` functions now return a `DisposeFn` — existing code that ignores the return value is unaffected. New exports: `unregisterAtom`, `unregisterAction`, `unregisterDerived`. See [Teardown and unregistration](#teardown-and-unregistration).
 
-**No breaking changes** — existing code that ignores the return value of `register*` is unaffected. To adopt cleanup:
+**From v0.2.0:** The Vite plugin was rewritten to use `noServer` mode, fixing an infinite reload loop with other plugins that hook `transformIndexHtml`. No code changes required — same API. `createRelayFromWss` is now exported from `claude-devtools-bridge/relay` for custom `WebSocketServer` setups.
 
-```ts
-// Before (still works)
-registerAtom("app", myState);
-
-// After (captures disposer for teardown)
-const dispose = registerAtom("app", myState);
-// later: dispose();
-```
-
-See the [Teardown and unregistration](#teardown-and-unregistration) section for full patterns.
-
-### Migration from v0.2.0 (noServer rewrite)
-
-The Vite plugin was rewritten to use `noServer` mode for its internal WebSocket. This fixes an infinite page reload loop when used alongside other Vite plugins that hook into `transformIndexHtml` (e.g. `vite-plugin-mcp-client-tools`).
-
-**No code changes required** — `devtoolsBridgePlugin()` has the same API. Just upgrade the package.
-
-If you added an inline workaround in your `vite.config.ts` to avoid the reload loop, you can now remove it and use the library's plugin directly again.
-
-Additionally, `createRelayFromWss` is now exported from `claude-devtools-bridge/relay` for advanced use cases where you need to provide your own `WebSocketServer` instance.
-
-### Migration from v0.1.x (port 7777 architecture)
-
-The previous architecture had the MCP server binding port 7777 as a WebSocket server. The new architecture flips the connection direction:
-
-| Before | After |
-|--------|-------|
-| MCP server binds `:7777` | Dev server hosts relay on its port |
-| Browser connects to `:7777` | Browser connects to dev server `/devtools-bridge?role=browser` |
-| `DEVTOOLS_PORT=7777` | `DEVTOOLS_PORT=5173` (your dev server port) |
-| No dev server integration needed | Mount relay via adapter (Vite plugin, etc.) |
-
-**To migrate:**
-1. Add the relay adapter to your dev server config (see Setup step 3)
-2. Change `initDevtools({ port: 7777 })` to `initDevtools({ port: 5173 })` (or your dev server port)
-3. Update `DEVTOOLS_PORT` in your `.mcp.json` if set
+**From v0.1.x:** The MCP server no longer binds its own port. Instead, the relay runs on your dev server. To migrate: (1) add the relay adapter to your dev server config, (2) change `initDevtools({ port: 7777 })` to your dev server port, (3) update `DEVTOOLS_PORT` in `.mcp.json`.
 
 ## License
 
