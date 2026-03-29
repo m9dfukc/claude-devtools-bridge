@@ -18,17 +18,23 @@ export const currentExecutionDepth = () => executionStack.length;
 // --- Atom registration ---
 export const registerAtom = (name, atom) => {
     registry.atoms.set(name, atom);
+    return () => registry.atoms.delete(name);
 };
+export const unregisterAtom = (name) => registry.atoms.delete(name);
 export const getRegisteredAtoms = () => registry.atoms;
 // --- Derived state registration ---
 export const registerDerived = (name, derived) => {
     registry.derived.set(name, derived);
+    return () => registry.derived.delete(name);
 };
+export const unregisterDerived = (name) => registry.derived.delete(name);
 export const getRegisteredDerived = () => registry.derived;
 // --- Action registration ---
 export const registerAction = (name, fn) => {
     registry.actions.set(name, fn);
+    return () => registry.actions.delete(name);
 };
+export const unregisterAction = (name) => registry.actions.delete(name);
 export const getRegisteredActions = () => registry.actions;
 // --- Log management ---
 export const addLogEntry = (entry) => {

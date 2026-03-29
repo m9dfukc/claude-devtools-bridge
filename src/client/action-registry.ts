@@ -1,6 +1,6 @@
 // Atom, derived, and action registration with execution log buffer + context stack
 
-import type { Watchable, Derivable, ActionFn, DevtoolsRegistry, LogEntry } from "./types";
+import type { Watchable, Derivable, ActionFn, DevtoolsRegistry, LogEntry, DisposeFn } from "./types";
 
 const LOG_BUFFER_LIMIT = 1000;
 
@@ -27,27 +27,39 @@ export const currentExecutionDepth = (): number => executionStack.length;
 
 // --- Atom registration ---
 
-export const registerAtom = (name: string, atom: Watchable): void => {
+export const registerAtom = (name: string, atom: Watchable): DisposeFn => {
     registry.atoms.set(name, atom);
+    return () => registry.atoms.delete(name);
 };
+
+export const unregisterAtom = (name: string): boolean =>
+    registry.atoms.delete(name);
 
 export const getRegisteredAtoms = (): ReadonlyMap<string, Watchable> =>
     registry.atoms;
 
 // --- Derived state registration ---
 
-export const registerDerived = (name: string, derived: Derivable): void => {
+export const registerDerived = (name: string, derived: Derivable): DisposeFn => {
     registry.derived.set(name, derived);
+    return () => registry.derived.delete(name);
 };
+
+export const unregisterDerived = (name: string): boolean =>
+    registry.derived.delete(name);
 
 export const getRegisteredDerived = (): ReadonlyMap<string, Derivable> =>
     registry.derived;
 
 // --- Action registration ---
 
-export const registerAction = (name: string, fn: ActionFn): void => {
+export const registerAction = (name: string, fn: ActionFn): DisposeFn => {
     registry.actions.set(name, fn);
+    return () => registry.actions.delete(name);
 };
+
+export const unregisterAction = (name: string): boolean =>
+    registry.actions.delete(name);
 
 export const getRegisteredActions = (): ReadonlyMap<string, ActionFn> =>
     registry.actions;

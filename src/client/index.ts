@@ -1,20 +1,24 @@
 // Public API for the devtools bridge (browser-side)
 
-export { registerAtom, registerAction, registerDerived } from "./action-registry";
+export {
+    registerAtom, registerAction, registerDerived,
+    unregisterAtom, unregisterAction, unregisterDerived,
+} from "./action-registry";
 export { wrapAction } from "./wrap-action";
 export { wrapEffect } from "./wrap-effect";
 export { connectDevtools } from "./devtools-client";
-export type { Watchable, Derivable, ActionFn } from "./types";
+export type { Watchable, Derivable, ActionFn, DisposeFn } from "./types";
 export type { ConnectOptions } from "./devtools-client";
 
 import { connectDevtools } from "./devtools-client";
 import type { ConnectOptions } from "./devtools-client";
+import type { DisposeFn } from "./types";
 
 /**
  * Initialize the devtools bridge.
  * Connects the WebSocket client and returns a cleanup function.
  */
-export const initDevtools = (options?: ConnectOptions): (() => void) => {
+export const initDevtools = (options?: ConnectOptions): DisposeFn => {
     console.log("[Devtools Bridge] initializing MCP devtools bridge");
     return connectDevtools(options);
 };

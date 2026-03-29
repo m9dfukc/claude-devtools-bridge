@@ -3,6 +3,7 @@ export interface Watchable<T = unknown> {
     reset(val: T): void;
 }
 export type ActionFn = (...args: readonly unknown[]) => unknown;
+export type DisposeFn = () => boolean;
 export interface LogEntry {
     readonly action: string;
     readonly timestamp: number;

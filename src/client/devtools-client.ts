@@ -8,7 +8,7 @@ import {
     clearLogs,
 } from "./action-registry";
 import { safeSerializeValue } from "./safe-serialize";
-import type { ServerMessage } from "./types";
+import type { DisposeFn, ServerMessage } from "./types";
 
 const RECONNECT_INTERVAL_MS = 2000;
 const DEFAULT_PORT = 5173;
@@ -121,7 +121,7 @@ export interface ConnectOptions {
     readonly path?: string;
 }
 
-export const connectDevtools = (options?: ConnectOptions): (() => void) => {
+export const connectDevtools = (options?: ConnectOptions): DisposeFn => {
     const port = options?.port ?? DEFAULT_PORT;
     const path = options?.path ?? DEFAULT_PATH;
     let ws: WebSocket | null = null;
@@ -167,10 +167,12 @@ export const connectDevtools = (options?: ConnectOptions): (() => void) => {
         reconnectTimer = setTimeout(connect, RECONNECT_INTERVAL_MS);
     };
 
-    const cleanup = (): void => {
+    const cleanup = (): boolean => {
+        if (disposed) return false;
         disposed = true;
         if (reconnectTimer) clearTimeout(reconnectTimer);
         ws?.close();
+        return true;
     };
 
     connect();

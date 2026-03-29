@@ -127,10 +127,13 @@ export const connectDevtools = (options) => {
         reconnectTimer = setTimeout(connect, RECONNECT_INTERVAL_MS);
     };
     const cleanup = () => {
+        if (disposed)
+            return false;
         disposed = true;
         if (reconnectTimer)
             clearTimeout(reconnectTimer);
         ws?.close();
+        return true;
     };
     connect();
     return cleanup;

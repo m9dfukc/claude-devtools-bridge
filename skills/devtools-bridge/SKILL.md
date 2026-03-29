@@ -21,24 +21,35 @@ import {
     registerAtom,
     registerDerived,
     registerAction,
+    unregisterAtom,
+    unregisterAction,
+    unregisterDerived,
     wrapAction,
     wrapEffect,
 } from "claude-devtools-bridge";
+import type { DisposeFn } from "claude-devtools-bridge";
+
+// register* returns a DisposeFn — collect them for cleanup
+const disposers: DisposeFn[] = [];
 
 // Register any state container that has deref() + reset()
-registerAtom("app", myStateContainer);
+disposers.push(registerAtom("app", myStateContainer));
 
 // Register read-only derived/computed state
-registerDerived("app.itemCount", {
-    deref: () => myStateContainer.deref().items.length,
-});
+disposers.push(
+    registerDerived("app.itemCount", {
+        deref: () => myStateContainer.deref().items.length,
+    }),
+);
 
 // Register and wrap actions for MCP invocation
-registerAction(
-    "app.reset",
-    wrapAction("app.reset", () => {
-        myStateContainer.reset(initialState);
-    }),
+disposers.push(
+    registerAction(
+        "app.reset",
+        wrapAction("app.reset", () => {
+            myStateContainer.reset(initialState);
+        }),
+    ),
 );
 
 // Wrap external calls as observable effects
@@ -48,7 +59,11 @@ const fetchItems = wrapEffect("api.fetchItems", async (query: string) => {
 });
 
 // Connect the WebSocket client
-const cleanup = initDevtools({ port: 5173 });
+const disconnect = initDevtools({ port: 5173 });
+
+// On teardown (unmount, HMR, navigation):
+disposers.forEach((d) => d());
+disconnect();
 ```
 
 ## The Watchable Interface
@@ -161,6 +176,28 @@ if (process.env.NODE_ENV === "development") {
 }
 ```
 
+### Cleanup on teardown
+
+`register*` returns a `DisposeFn` that removes the entry from the registry. Collect disposers and call them when the component or module unmounts:
+
+```ts
+const disposers: DisposeFn[] = [];
+
+disposers.push(registerAtom("app/state", myState));
+disposers.push(registerAction("app/reset", wrapAction("app/reset", resetFn)));
+
+// on teardown:
+disposers.forEach((d) => d());
+disposers.length = 0;
+```
+
+For cross-scope cleanup (e.g. a supervisor cleaning up after a crashed plugin), use the manual `unregister*` functions:
+
+```ts
+unregisterAtom("plugin/state");
+unregisterAction("plugin/process");
+```
+
 ### Actions must be registered and wrapped
 
 Actions that Claude should be able to trigger via MCP must be registered with `registerAction()` and wrapped with `wrapAction()` for execution logging:
@@ -197,5 +234,5 @@ These tools are available when the MCP server is running:
 - **Don't register non-serializable state.** Three.js scenes, WebGL contexts, DOM elements, and functions cannot be serialized. Only register containers with plain data.
 - **Don't use devtools imports in production paths.** Gate all devtools code behind a dev-mode check.
 - **Don't make actions depend on the registry.** Actions should work identically whether or not they are registered.
-- **Don't register the same name twice** without removing the first — the second call silently overwrites.
+- **Re-registering the same name overwrites the previous entry.** This is intentional for HMR — the new `register*` call returns a fresh disposer, and the old disposer becomes a no-op (its key was already replaced). If you need explicit cleanup between registrations, call the old disposer first or use `unregister*`.
 - **Don't try to set_state on derived values.** They are read-only computed views.

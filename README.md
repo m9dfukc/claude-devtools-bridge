@@ -118,6 +118,7 @@ import {
     wrapAction,
     wrapEffect,
 } from "claude-devtools-bridge";
+import type { DisposeFn } from "claude-devtools-bridge";
 
 // Any object with deref() and reset() works
 const appState = {
@@ -126,19 +127,26 @@ const appState = {
     reset(val) { this._value = val; },
 };
 
-registerAtom("app", appState);
+// register* returns a DisposeFn — collect them for cleanup
+const disposers: DisposeFn[] = [];
+
+disposers.push(registerAtom("app", appState));
 
 // Register read-only derived/computed state
-registerDerived("app.itemCount", {
-    deref: () => appState.deref().items.length,
-});
-
-registerAction(
-    "app.increment",
-    wrapAction("app.increment", () => {
-        const state = appState.deref();
-        appState.reset({ ...state, count: state.count + 1 });
+disposers.push(
+    registerDerived("app.itemCount", {
+        deref: () => appState.deref().items.length,
     }),
+);
+
+disposers.push(
+    registerAction(
+        "app.increment",
+        wrapAction("app.increment", () => {
+            const state = appState.deref();
+            appState.reset({ ...state, count: state.count + 1 });
+        }),
+    ),
 );
 
 // Wrap external calls as observable effects
@@ -148,7 +156,11 @@ const fetchItems = wrapEffect("api.fetchItems", async (query: string) => {
 });
 
 // Connect to the relay on your dev server port
-const cleanup = initDevtools({ port: 5173 });
+const disconnect = initDevtools({ port: 5173 });
+
+// On teardown:
+// disposers.forEach((d) => d());
+// disconnect();
 ```
 
 **5. Start your app and Claude Code.** The plugin provides the MCP server automatically — Claude gets 5 tools plus the `devtools-bridge` skill.
@@ -251,17 +263,24 @@ Gate devtools behind your framework's dev-mode check so it's stripped from produ
 // Vite
 if (import.meta.env.DEV) {
     const { initDevtools, registerAtom, registerDerived } = await import("claude-devtools-bridge");
-    registerAtom("app", myState);
-    registerDerived("app.computed", myDerivedView);
-    initDevtools();
+    const disposers = [
+        registerAtom("app", myState),
+        registerDerived("app.computed", myDerivedView),
+    ];
+    const disconnect = initDevtools();
+
+    // Return cleanup handle for HMR / unmount:
+    // () => { disposers.forEach((d) => d()); disconnect(); }
 }
 
 // Node / CJS
 if (process.env.NODE_ENV === "development") {
     const { initDevtools, registerAtom, registerDerived } = await import("claude-devtools-bridge");
-    registerAtom("app", myState);
-    registerDerived("app.computed", myDerivedView);
-    initDevtools();
+    const disposers = [
+        registerAtom("app", myState),
+        registerDerived("app.computed", myDerivedView),
+    ];
+    const disconnect = initDevtools();
 }
 ```
 
@@ -340,6 +359,64 @@ const fetchData = wrapEffect("api.fetchData", async (url: string) => {
 
 Effects log: name, args, result/error, and duration (ms). They appear in `get_logs` output with a lightning prefix alongside action logs.
 
+## Teardown and unregistration
+
+`register*` functions return a `DisposeFn` that removes the entry from the registry. This is the recommended cleanup pattern — like React's `useEffect` return:
+
+```ts
+import type { DisposeFn } from "claude-devtools-bridge";
+
+const disposers: DisposeFn[] = [];
+
+disposers.push(registerAtom("app", myState));
+disposers.push(registerAction("app.reset", wrapAction("app.reset", resetFn)));
+
+// On teardown (component unmount, HMR, navigation):
+disposers.forEach((d) => d());
+```
+
+For cross-scope cleanup (e.g. a supervisor cleaning up after a crashed plugin), use the explicit `unregister*` functions:
+
+```ts
+import { unregisterAtom, unregisterAction, unregisterDerived } from "claude-devtools-bridge";
+
+unregisterAtom("plugin/state");     // returns true if the entry existed
+unregisterAction("plugin/process");
+unregisterDerived("plugin/computed");
+```
+
+### React useEffect
+
+```ts
+useEffect(() => {
+    const disposers = [
+        registerAtom("app", { deref: () => store.getState(), reset: store.setState }),
+        registerAction("app.increment", wrapAction("app.increment", increment)),
+    ];
+    const disconnect = initDevtools();
+
+    return () => {
+        disposers.forEach((d) => d());
+        disconnect();
+    };
+}, []);
+```
+
+### API
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `registerAtom` | `(name, atom) => DisposeFn` | Register a state container; returns a disposer |
+| `registerAction` | `(name, fn) => DisposeFn` | Register an action; returns a disposer |
+| `registerDerived` | `(name, derived) => DisposeFn` | Register derived state; returns a disposer |
+| `unregisterAtom` | `(name) => boolean` | Remove an atom by key; returns true if it existed |
+| `unregisterAction` | `(name) => boolean` | Remove an action by key; returns true if it existed |
+| `unregisterDerived` | `(name) => boolean` | Remove derived state by key; returns true if it existed |
+
+Re-registering the same name overwrites the previous entry (intentional for HMR). The old disposer becomes a no-op.
+
+The disposer only removes the bridge's reference — it does **not** touch the underlying state container. State lifecycle is the responsibility of your state management layer.
+
 ## Configuration
 
 ### Dev server port
@@ -350,7 +427,24 @@ The MCP server and browser client both connect to the relay on your dev server. 
 - **Server:** `DEVTOOLS_PORT=3000` environment variable (in `.mcp.json` or shell)
 - **Relay path:** `/devtools-bridge` by default (configurable via adapter options)
 
-### Migration from v0.2.0
+### Migration from v0.2.x
+
+v0.3.0 adds granular unregistration. `registerAtom`, `registerAction`, and `registerDerived` now return a `DisposeFn` instead of `void`. Three new exports are available: `unregisterAtom`, `unregisterAction`, `unregisterDerived`, plus the `DisposeFn` type.
+
+**No breaking changes** — existing code that ignores the return value of `register*` is unaffected. To adopt cleanup:
+
+```ts
+// Before (still works)
+registerAtom("app", myState);
+
+// After (captures disposer for teardown)
+const dispose = registerAtom("app", myState);
+// later: dispose();
+```
+
+See the [Teardown and unregistration](#teardown-and-unregistration) section for full patterns.
+
+### Migration from v0.2.0 (noServer rewrite)
 
 The Vite plugin was rewritten to use `noServer` mode for its internal WebSocket. This fixes an infinite page reload loop when used alongside other Vite plugins that hook into `transformIndexHtml` (e.g. `vite-plugin-mcp-client-tools`).
 

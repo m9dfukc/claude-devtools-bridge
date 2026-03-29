@@ -39,7 +39,19 @@ export const wrapAction = (name, fn) => {
     const wrapped = (...args) => {
         const before = snapshotAtoms();
         pushExecutionContext();
-        const result = fn(...args);
+        // let instead of const — need to assign in try and read in finally
+        let result; // eslint-disable-line prefer-const
+        try {
+            result = fn(...args);
+        }
+        catch (err) {
+            const children = popExecutionContext();
+            addLogEntry({
+                ...buildEntry(name, before, children),
+                error: String(err),
+            });
+            throw err;
+        }
         // Handle async actions
         if (result instanceof Promise) {
             return result.then((resolved) => {
