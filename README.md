@@ -255,35 +255,6 @@ registerAtom("app", {
 });
 ```
 
-## Dev-only usage
-
-Gate devtools behind your framework's dev-mode check so it's stripped from production:
-
-```ts
-// Vite
-if (import.meta.env.DEV) {
-    const { initDevtools, registerAtom, registerDerived } = await import("claude-devtools-bridge");
-    const disposers = [
-        registerAtom("app", myState),
-        registerDerived("app.computed", myDerivedView),
-    ];
-    const disconnect = initDevtools();
-
-    // Return cleanup handle for HMR / unmount:
-    // () => { disposers.forEach((d) => d()); disconnect(); }
-}
-
-// Node / CJS
-if (process.env.NODE_ENV === "development") {
-    const { initDevtools, registerAtom, registerDerived } = await import("claude-devtools-bridge");
-    const disposers = [
-        registerAtom("app", myState),
-        registerDerived("app.computed", myDerivedView),
-    ];
-    const disconnect = initDevtools();
-}
-```
-
 ## Derived state
 
 Register read-only computed values so Claude can inspect derived state alongside raw atoms:
@@ -357,7 +328,7 @@ const fetchData = wrapEffect("api.fetchData", async (url: string) => {
 });
 ```
 
-Effects log: name, args, result/error, and duration (ms). They appear in `get_logs` output with a lightning prefix alongside action logs.
+Effects log: name, args, result/error, and duration (ms). They appear in `get_logs` output alongside action logs.
 
 ## Teardown and unregistration
 
@@ -416,6 +387,65 @@ useEffect(() => {
 Re-registering the same name overwrites the previous entry (intentional for HMR). The old disposer becomes a no-op.
 
 The disposer only removes the bridge's reference — it does **not** touch the underlying state container. State lifecycle is the responsibility of your state management layer.
+
+## Dynamic components
+
+In apps where components mount and unmount at runtime (SPA pages, lazy-loaded modules, plugin systems), co-locate registrations with the lifecycle that owns the state.
+
+### Rule of thumb
+
+- **Register where the state is created.** If a page component creates local state on mount, register it there.
+- **Dispose where the state is destroyed.** Unmount, route change, module unload — call the disposers.
+- **Namespace keys by component.** Use prefixes like `"cart/state"`, `"profile/actions"` to avoid collisions and make it clear what belongs to what.
+
+### Page-level registration
+
+```ts
+// pages/cart.ts
+const mountCart = () => {
+    const cartState = createCartStore();
+    const disposers = [
+        registerAtom("cart/state", cartState),
+        registerAction("cart/clear", wrapAction("cart/clear", () => cartState.reset({ items: [] }))),
+        registerAction("cart/checkout", wrapAction("cart/checkout", checkout)),
+    ];
+
+    return {
+        teardown: () => disposers.forEach((d) => d()),
+    };
+};
+```
+
+When the user navigates away, `teardown()` removes the cart entries. The next page registers its own state under its own namespace. Claude's `get_state` always reflects what's currently mounted.
+
+### Atoms vs actions
+
+Atom registrations are lazy — `deref()` reads the current value at query time, so you can register once even if the data shape changes. Actions are closures that capture references at registration time. If a reference dies (e.g. a stream is torn down), the action breaks. Register actions in the same scope as the references they close over, and dispose them together.
+
+### System-level state
+
+For state that lives for the full app session (auth, theme, top-level store), register once at startup. No re-registration needed when the data inside changes — `deref()` always returns the current value.
+
+## Dev-only usage
+
+`wrapAction` and `wrapEffect` are transparent — same signature in, same return value out. Without `initDevtools()`, no WebSocket opens and Claude has no access. But the wrappers still do work: `wrapAction` runs `structuredClone` on all registered atoms before and after each call, and both push entries into a bounded log buffer (capped at 1000). This overhead is negligible for most apps but isn't zero.
+
+**What to gate:** At minimum, gate `initDevtools()` — without it there's no connection, but wrappers still run. For zero overhead in production, gate the entire import so the module is tree-shaken out:
+
+```ts
+if (import.meta.env.DEV) {
+    const { initDevtools, registerAtom, registerAction, wrapAction } =
+        await import("claude-devtools-bridge");
+
+    const disposers = [
+        registerAtom("app", myState),
+        registerAction("app.reset", wrapAction("app.reset", resetFn)),
+    ];
+    const disconnect = initDevtools();
+}
+```
+
+The dynamic `import()` behind `import.meta.env.DEV` lets Vite (and other bundlers) eliminate the entire module from the production build. For apps with many components that each register state, consider centralizing the dev check in a single module that re-exports the bridge functions (or no-op passthroughs in production) — this avoids scattering `if (DEV)` checks across your codebase.
 
 ## Configuration
 

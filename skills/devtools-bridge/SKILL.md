@@ -136,7 +136,34 @@ const saveToStorage = wrapEffect("storage.save", (key: string, val: string) => {
 });
 ```
 
-Effects log: name, args, result/error, and duration. They appear in `get_logs` output with an ⚡ prefix alongside action logs.
+Effects log: name, args, result/error, and duration. They appear in `get_logs` output alongside action logs.
+
+---
+
+## How wrapAction and wrapEffect Work
+
+Both are **transparent function decorators** — same signature in, same return value out, errors re-thrown unchanged. They do not modify what your function does; they observe it.
+
+**`wrapAction(name, fn)`** — wraps `fn` with before/after state snapshots. On each call it `structuredClone`s all registered atoms, runs `fn`, snapshots again, diffs the two, and logs which atoms changed. Nested wrapped actions are captured as children in a tree.
+
+**`wrapEffect(name, fn)`** — lighter than `wrapAction`. No state snapshots. Logs the function's args, return value (or error), and duration.
+
+Both push entries into a bounded in-memory log buffer (capped at 1000 entries). Without `initDevtools()`, no WebSocket opens — the logs accumulate but nobody reads them.
+
+**Overhead:** `wrapAction` runs `structuredClone` on every registered atom per call. This is negligible for most apps but not zero. `wrapEffect` is cheaper — just timing and serialization of args/result.
+
+**Registration is separate from wrapping.** `wrapAction` does not register anything — it returns a decorated function. `registerAction` puts a function in the registry so Claude can trigger it via MCP. You can use one without the other:
+
+```ts
+// Wrapped + registered (full devtools integration)
+registerAction("app.reset", wrapAction("app.reset", resetFn));
+
+// Registered but not wrapped (Claude can trigger it, but no diff logging)
+registerAction("app.reset", resetFn);
+
+// Wrapped but not registered (logs diffs when called, but Claude can't trigger it)
+const reset = wrapAction("app.reset", resetFn);
+```
 
 ---
 
@@ -163,18 +190,18 @@ In `get_logs` output, nested actions appear indented under their parent:
 
 ## Registration Conventions
 
-### Every state container should be registered in dev mode
+### Dev-only gating
 
-Gate devtools imports behind your framework's dev-mode check:
+Without `initDevtools()`, no WebSocket opens and Claude has no access. But `wrapAction`/`wrapEffect` still do work (snapshots, log buffer). For zero overhead in production, gate the entire import behind a dev check so the module is tree-shaken out:
 
 ```ts
-if (process.env.NODE_ENV === "development") {
-    const { initDevtools, registerAtom, registerDerived } = await import("claude-devtools-bridge");
-    registerAtom("app", myState);
-    registerDerived("app.computed", myDerivedView);
-    initDevtools();
+if (import.meta.env.DEV) {
+    const { initDevtools, registerAtom, wrapAction } = await import("claude-devtools-bridge");
+    // ... register, wrap, connect
 }
 ```
+
+For apps with many components that each register state, centralizing the dev check in a single module that re-exports the bridge functions (or no-op passthroughs in production) avoids scattering `if (DEV)` checks across the codebase.
 
 ### Cleanup on teardown
 
@@ -198,20 +225,36 @@ unregisterAtom("plugin/state");
 unregisterAction("plugin/process");
 ```
 
-### Actions must be registered and wrapped
+### Naming conventions
 
-Actions that Claude should be able to trigger via MCP must be registered with `registerAction()` and wrapped with `wrapAction()` for execution logging:
+Use dot-notation or slash-notation names: `"module.action"` or `"module/action"` (e.g., `"fsm.next"`, `"cart/clear"`).
+
+### Atoms are lazy, actions capture
+
+Atom registrations point at the container, not a snapshot. `deref()` is called on each `get_state` request — the atom's data can change shape freely (loaded content, user profiles, FSM transitions) without re-registration.
+
+Actions are closures that capture references at registration time. If a captured reference dies (stream unsubscribed, object null'd on teardown), the action breaks. Register actions in the same scope as the references they close over, and dispose them together.
+
+### Dynamic components
+
+In apps where components mount and unmount at runtime (SPA pages, lazy modules, plugin systems):
+
+- **Register where the state is created.** If a page creates local state on mount, register it there.
+- **Dispose where the state is destroyed.** Unmount, route change, module unload — call the disposers.
+- **Namespace keys by component.** Use prefixes like `"cart/state"`, `"profile/actions"` to avoid collisions.
 
 ```ts
-registerAction(
-    "module.doThing",
-    wrapAction("module.doThing", () => {
-        // action logic
-    }),
-);
+const mountPage = () => {
+    const pageState = createPageStore();
+    const disposers = [
+        registerAtom("page/state", pageState),
+        registerAction("page/clear", wrapAction("page/clear", () => pageState.reset({}))),
+    ];
+    return { teardown: () => disposers.forEach((d) => d()) };
+};
 ```
 
-Use dot-notation names: `"module.action"` (e.g., `"fsm.next"`, `"filter.reset"`).
+When the user navigates away, `teardown()` removes the entries. Claude's `get_state` always reflects what's currently active.
 
 ---
 
