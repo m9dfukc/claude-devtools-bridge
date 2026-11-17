@@ -30875,7 +30875,7 @@ var coerce = {
 var NEVER2 = INVALID2;
 
 // src/shared/version.ts
-var VERSION = "0.4.0";
+var VERSION = "0.4.1";
 
 // node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
@@ -31415,16 +31415,14 @@ var status = async (client2, tab2) => {
   if (state.kind !== "connected") {
     return { text: client2.explain(state), isError: true };
   }
-  const relay = await client2.request("relay_status");
   let description;
   let descriptionError;
-  if (relay.tabs.length > 0) {
-    try {
-      description = await client2.request("describe", {}, { ...tab2 ? { tab: tab2 } : {} });
-    } catch (err) {
-      descriptionError = err.message;
-    }
+  try {
+    description = await client2.request("describe", {}, { ...tab2 ? { tab: tab2 } : {} });
+  } catch (err) {
+    descriptionError = err.message;
   }
+  const relay = await client2.request("relay_status");
   return { text: formatStatus(client2.explain(state), relay, description, descriptionError, VERSION) };
 };
 var getState = async (client2, args) => {

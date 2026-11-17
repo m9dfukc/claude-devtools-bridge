@@ -3652,7 +3652,7 @@ var require_websocket_server = __commonJS({
 import { parseArgs } from "node:util";
 
 // src/shared/version.ts
-var VERSION = "0.4.0";
+var VERSION = "0.4.1";
 
 // node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
@@ -4192,16 +4192,14 @@ var status = async (client, tab) => {
   if (state.kind !== "connected") {
     return { text: client.explain(state), isError: true };
   }
-  const relay = await client.request("relay_status");
   let description;
   let descriptionError;
-  if (relay.tabs.length > 0) {
-    try {
-      description = await client.request("describe", {}, { ...tab ? { tab } : {} });
-    } catch (err) {
-      descriptionError = err.message;
-    }
+  try {
+    description = await client.request("describe", {}, { ...tab ? { tab } : {} });
+  } catch (err) {
+    descriptionError = err.message;
   }
+  const relay = await client.request("relay_status");
   return { text: formatStatus(client.explain(state), relay, description, descriptionError, VERSION) };
 };
 var getState = async (client, args) => {

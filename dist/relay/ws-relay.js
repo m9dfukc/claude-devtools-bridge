@@ -196,6 +196,14 @@ const createCore = (options, path) => {
             catch {
                 return;
             }
+            if (msg["type"] === "page") {
+                // In-page navigation: refresh what is shown, leave the focus order alone.
+                if (typeof msg["url"] === "string")
+                    tab.url = msg["url"];
+                if (typeof msg["title"] === "string")
+                    tab.title = msg["title"];
+                return;
+            }
             if (msg["type"] === "hello" || msg["type"] === "active") {
                 if (typeof msg["url"] === "string")
                     tab.url = msg["url"];

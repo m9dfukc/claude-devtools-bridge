@@ -36,9 +36,13 @@ export interface ErrorResponse {
     readonly tab?: string;
 }
 export type BridgeResponse = OkResponse | ErrorResponse;
-/** Browser → relay, right after connecting and whenever the tab gains focus. */
+/**
+ * Browser → relay: right after connecting (`hello`), when the tab gains focus
+ * (`active`), and when the page URL or title changed (`page`). Only `hello`
+ * and `active` affect the focus order; `page` carries just `url` and `title`.
+ */
 export interface BrowserHello {
-    readonly type: "hello" | "active";
+    readonly type: "hello" | "active" | "page";
     readonly protocol?: number;
     readonly version?: string;
     readonly url?: string;
