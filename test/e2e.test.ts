@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { existsSync, mkdtempSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, before, test } from "node:test";
@@ -271,12 +272,17 @@ test("a web page cannot read state by posing as MCP client", async () => {
 
 test("the MCP server recovers when the dev server restarts on another port", async () => {
     setupApp();
+    // No tool call while the relay is down: without a discovery file the MCP
+    // server falls back to localhost:5173, where an unrelated dev server may
+    // well be running on the machine that executes the tests.
+    const oldPort = relay.port;
     await relay.close();
-    const down = await call(mcp, "get_state");
-    assert.equal(down.isError, true);
-    assert.match(down.text, /Cannot reach the relay|closed before the answer/);
-
+    const occupier = createServer();
+    await new Promise<void>((r) => occupier.once("error", () => r()).listen(oldPort, "127.0.0.1", r));
     relay = await startRelay({ discovery: true, root: project });
+    occupier.close();
+    assert.notEqual(relay.port, oldPort);
+
     const dispose = connectDevtools({ url: relay.url });
     await sleep(300);
     const up = await call(mcp, "get_state", { name: "app", path: "count" });
@@ -284,8 +290,25 @@ test("the MCP server recovers when the dev server restarts on another port", asy
     dispose();
 });
 
+test("a dev server that is not running is diagnosed as such", async () => {
+    // A port nobody listens on, given explicitly so that nothing is guessed.
+    const probe = createServer();
+    await new Promise<void>((r) => probe.listen(0, "127.0.0.1", r));
+    const port = (probe.address() as { port: number }).port;
+    await new Promise((r) => probe.close(r));
+
+    const other = await startMcp(project, { DEVTOOLS_PORT: String(port) });
+    const status = await call(other, "status");
+    assert.equal(status.isError, true);
+    assert.match(status.text, new RegExp(`Cannot reach the relay at ws://localhost:${port}/devtools-bridge \\(from: DEVTOOLS_PORT\\): ECONNREFUSED`));
+    assert.match(status.text, /Nothing is listening on that port/);
+
+    const failed = await call(other, "get_state");
+    assert.equal(failed.isError, true);
+    assert.match(failed.text, /Cannot reach the relay/);
+});
+
 test("a server that is not a relay is diagnosed as such", async () => {
-    const { createServer } = await import("node:http");
     const plain = createServer((_, res) => res.end("hello"));
     await new Promise<void>((r) => plain.listen(0, "127.0.0.1", r));
     const port = (plain.address() as { port: number }).port;
