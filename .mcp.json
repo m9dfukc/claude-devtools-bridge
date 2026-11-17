@@ -2,10 +2,7 @@
     "mcpServers": {
         "devtools-bridge": {
             "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/server/mcp-server.js"],
-            "env": {
-                "DEVTOOLS_PORT": "5173"
-            }
+            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/server/mcp-server.js"]
         }
     }
 }

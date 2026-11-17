@@ -1,69 +1,70 @@
-// Wraps external calls (fetch, storage, APIs) as observable effects that get logged
+// Wraps external calls (fetch, storage, APIs) as observable effects.
+// Effects do not snapshot state — they log args, result or error, and duration.
 
-import { addLogEntry } from "./action-registry";
-import { safeSerializeValue } from "./safe-serialize";
-import type { LogEntry } from "./types";
+import type { LogEntry } from "../shared/protocol.js";
+import { addLogEntry, currentFrame, inFlightNames } from "./action-registry.js";
+import { safeSerializeValue } from "./safe-serialize.js";
+import { clip } from "./summarize.js";
+import { isThenable } from "./wrap-action.js";
 
-/**
- * Wraps an external call (fetch, localStorage, API) so it appears in logs.
- * Unlike wrapAction, effects don't snapshot atom state — they log args, result/error, and duration.
- */
+const now = (): number =>
+    typeof performance !== "undefined" ? performance.now() : Date.now();
+
 export const wrapEffect = <A extends readonly unknown[], R>(
     name: string,
     fn: (...args: A) => R,
 ): ((...args: A) => R) => {
-    const wrapped = (...args: A): R => {
-        const start = performance.now();
-        let result: R;
+    const wrapped = function (this: unknown, ...args: A): R {
+        const parent = currentFrame();
+        const during = inFlightNames();
+        const startedAt = Date.now();
+        const t0 = now();
 
+        const record = (isAsync: boolean, result: unknown, error?: unknown): void => {
+            try {
+                const entry: LogEntry = {
+                    action: name,
+                    kind: "effect",
+                    timestamp: startedAt,
+                    duration: Math.round((now() - t0) * 100) / 100,
+                    diffs: [],
+                    args: clip(safeSerializeValue(args)),
+                    ...(isAsync ? { async: true } : {}),
+                    ...(error !== undefined
+                        ? { error: String(error) }
+                        : result !== undefined
+                          ? { result: clip(safeSerializeValue(result)) }
+                          : {}),
+                };
+                addLogEntry(entry, parent, during);
+            } catch (err) {
+                console.warn("[Devtools Bridge] logging failed:", err);
+            }
+        };
+
+        let result: R;
         try {
-            result = fn(...args);
+            result = fn.apply(this, args as unknown as unknown[] as never) as R;
         } catch (err) {
-            const duration = performance.now() - start;
-            addLogEntry(buildEffectEntry(name, args, undefined, String(err), duration));
+            record(false, undefined, err ?? "undefined");
             throw err;
         }
 
-        // Handle async effects
-        if (result instanceof Promise) {
-            return result.then((resolved) => {
-                const duration = performance.now() - start;
-                addLogEntry(buildEffectEntry(name, args, resolved, undefined, duration));
-                return resolved;
-            }).catch((err: unknown) => {
-                const duration = performance.now() - start;
-                addLogEntry(buildEffectEntry(name, args, undefined, String(err), duration));
-                throw err;
-            }) as R;
+        if (isThenable(result)) {
+            return result.then(
+                (resolved) => {
+                    record(true, resolved);
+                    return resolved;
+                },
+                (err: unknown) => {
+                    record(true, undefined, err ?? "undefined");
+                    throw err;
+                },
+            ) as R;
         }
 
-        const duration = performance.now() - start;
-        addLogEntry(buildEffectEntry(name, args, result, undefined, duration));
+        record(false, result);
         return result;
     };
     return wrapped;
-};
-
-const buildEffectEntry = (
-    name: string,
-    args: readonly unknown[],
-    result: unknown,
-    error: string | undefined,
-    duration: number,
-): LogEntry => {
-    const entry: LogEntry = {
-        action: name,
-        timestamp: Date.now(),
-        kind: "effect",
-        diffs: [],
-        duration: Math.round(duration * 100) / 100,
-        args: safeSerializeValue(args),
-    };
-    if (error !== undefined) {
-        return { ...entry, error };
-    }
-    if (result !== undefined) {
-        return { ...entry, result: safeSerializeValue(result) };
-    }
-    return entry;
 };

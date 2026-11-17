@@ -24,3 +24,5 @@ yarn-debug.log
 
 # Handoff
 HANDOFF.md
+# Scratch
+/test/_*.mts

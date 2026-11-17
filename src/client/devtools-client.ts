@@ -1,180 +1,254 @@
-// Browser-side WebSocket client that connects to the MCP devtools server
+// Browser-side WebSocket client. Connects to the relay on the dev server and
+// answers requests from the MCP side.
 
 import {
-    getRegisteredAtoms,
-    getRegisteredDerived,
-    getRegisteredActions,
-    getLogs,
-    clearLogs,
-} from "./action-registry";
-import { safeSerializeValue } from "./safe-serialize";
-import type { DisposeFn, ServerMessage } from "./types";
+    DEFAULT_PATH,
+    DEFAULT_PORT,
+    FATAL_CLOSE_CODES,
+    PROTOCOL_VERSION,
+    type BridgeResponse,
+    type BrowserHello,
+    type ErrorCode,
+} from "../shared/protocol.js";
+import { VERSION } from "../shared/version.js";
+import { installGlobal } from "./global.js";
+import { handleRequest, HandlerError } from "./handlers.js";
+import type { DisposeFn } from "./types.js";
 
 const RECONNECT_INTERVAL_MS = 2000;
-const DEFAULT_PORT = 5173;
-const DEFAULT_PATH = "/devtools-bridge";
-
-const handleGetState = (): Record<string, unknown> => {
-    const atoms: Record<string, unknown> = {};
-    for (const [name, atom] of getRegisteredAtoms()) {
-        atoms[name] = safeSerializeValue(atom.deref());
-    }
-    const derivedMap = getRegisteredDerived();
-    if (derivedMap.size === 0) return atoms;
-
-    const derived: Record<string, unknown> = {};
-    for (const [name, d] of derivedMap) {
-        derived[name] = safeSerializeValue(d.deref());
-    }
-    return { ...atoms, $derived: derived };
-};
-
-const parseValue = (value: unknown): unknown => {
-    if (typeof value !== "string") return value;
-    try {
-        return JSON.parse(value);
-    } catch {
-        return value;
-    }
-};
-
-const handleSetState = (
-    path: string,
-    value: unknown,
-): { success: boolean; error?: string } => {
-    // Reject writes to derived state
-    if (getRegisteredDerived().has(path)) {
-        return {
-            success: false,
-            error: `"${path}" is a derived (read-only) value and cannot be set directly.`,
-        };
-    }
-    const atoms = getRegisteredAtoms();
-    const atom = atoms.get(path);
-    if (!atom) {
-        return {
-            success: false,
-            error: `Unknown atom "${path}". Available: ${[...atoms.keys()].join(", ")}`,
-        };
-    }
-    atom.reset(parseValue(value));
-    return { success: true };
-};
-
-const handleTriggerAction = async (
-    name: string,
-    payload?: unknown,
-): Promise<{ success: boolean; result?: unknown; error?: string }> => {
-    const actions = getRegisteredActions();
-    const action = actions.get(name);
-    if (!action) {
-        return {
-            success: false,
-            error: `Unknown action "${name}". Available: ${[...actions.keys()].join(", ")}`,
-        };
-    }
-    const result = payload !== undefined ? await action(payload) : await action();
-    return { success: true, result: safeSerializeValue(result) };
-};
-
-const handleMessage = async (
-    msg: ServerMessage,
-    send: (data: unknown) => void,
-): Promise<void> => {
-    switch (msg.type) {
-        case "get_state":
-            send({ type: "state_result", id: msg.id, data: handleGetState() });
-            break;
-
-        case "set_state": {
-            const setResult = handleSetState(msg.path, msg.value);
-            send({ type: "set_state_result", id: msg.id, ...setResult });
-            break;
-        }
-
-        case "trigger_action": {
-            const actionResult = await handleTriggerAction(
-                msg.name,
-                msg.payload,
-            );
-            send({ type: "action_result", id: msg.id, ...actionResult });
-            break;
-        }
-
-        case "get_logs":
-            send({
-                type: "logs_result",
-                id: msg.id,
-                data: safeSerializeValue(getLogs()),
-            });
-            break;
-
-        case "clear_logs":
-            clearLogs();
-            send({ type: "clear_logs_result", id: msg.id, success: true });
-            break;
-    }
-};
+/** Keeps the socket open across unmount → mount (route change, HMR). */
+const CLOSE_GRACE_MS = 300;
 
 export interface ConnectOptions {
+    /** Full relay URL, e.g. "ws://192.168.1.20:7777/devtools-bridge". Overrides everything else. */
+    readonly url?: string;
+    /** Relay host. Default: the host the page was loaded from. */
+    readonly host?: string;
+    /** Relay port. Default: the port the page was loaded from (the dev server). */
     readonly port?: number;
+    /** Relay path. Default: "/devtools-bridge". */
     readonly path?: string;
 }
 
-export const connectDevtools = (options?: ConnectOptions): DisposeFn => {
-    const port = options?.port ?? DEFAULT_PORT;
-    const path = options?.path ?? DEFAULT_PATH;
+interface LocationLike {
+    readonly protocol?: string;
+    readonly hostname?: string;
+    readonly port?: string;
+    readonly href?: string;
+}
+
+/** Exported for tests. */
+export const resolveRelayUrl = (options: ConnectOptions = {}, loc?: LocationLike): string => {
+    if (options.url) return options.url;
+    const path = options.path ?? DEFAULT_PATH;
+    const pageHost = loc?.hostname || undefined;
+    const host = options.host ?? pageHost ?? "localhost";
+    const samePage = pageHost !== undefined && host === pageHost;
+    const pagePort = loc?.port ?? "";
+    const port =
+        options.port !== undefined
+            ? String(options.port)
+            : pageHost !== undefined && options.host === undefined
+              ? pagePort
+              : String(DEFAULT_PORT);
+    // wss only when talking to the server that served the page over https.
+    const secure = loc?.protocol === "https:" && samePage && port === pagePort;
+    const h = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+    return `${secure ? "wss" : "ws"}://${h}${port ? `:${port}` : ""}${path}`;
+};
+
+interface Connection {
+    refs: number;
+    close(): void;
+    closeTimer: ReturnType<typeof setTimeout> | null;
+}
+
+const connections = new Map<string, Connection>();
+
+// When this tab last had focus. Kept in sessionStorage so that a reload (HMR,
+// navigation) does not make the tab look less recently used than its siblings.
+const ACTIVE_KEY = "__devtools_bridge_active_at";
+
+const readActiveAt = (): number => {
+    try {
+        const raw = (globalThis as { sessionStorage?: Storage }).sessionStorage?.getItem(ACTIVE_KEY);
+        const n = Number(raw);
+        return Number.isFinite(n) ? n : 0;
+    } catch {
+        return 0;
+    }
+};
+
+const markActive = (): void => {
+    try {
+        (globalThis as { sessionStorage?: Storage }).sessionStorage?.setItem(ACTIVE_KEY, String(Date.now()));
+    } catch {
+        // storage unavailable — focus order then only lasts until the next reload
+    }
+};
+
+const pageInfo = (): Pick<BrowserHello, "url" | "title" | "focused" | "activeAt"> => {
+    const g = globalThis as {
+        location?: LocationLike;
+        document?: { title?: string; hasFocus?: () => boolean };
+    };
+    let focused = false;
+    try {
+        focused = g.document?.hasFocus?.() ?? false;
+    } catch {
+        focused = false;
+    }
+    if (focused) markActive();
+    return {
+        ...(g.location?.href ? { url: g.location.href } : {}),
+        ...(g.document?.title ? { title: g.document.title } : {}),
+        focused,
+        activeAt: readActiveAt(),
+    };
+};
+
+const open = (url: string): Connection => {
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
 
     const send = (data: unknown): void => {
-        if (ws?.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify(data));
-        }
+        if (ws?.readyState === 1) ws.send(JSON.stringify(data));
     };
+
+    const respond = (id: string, run: () => Promise<unknown>): void => {
+        run().then(
+            (data) => send({ id, ok: true, data } satisfies BridgeResponse),
+            (err: unknown) => {
+                const code: ErrorCode = err instanceof HandlerError ? err.code : "handler_error";
+                const error = err instanceof Error ? err.message : String(err);
+                if (code === "handler_error") {
+                    console.error("[Devtools Bridge] error handling request:", err);
+                }
+                send({ id, ok: false, code, error } satisfies BridgeResponse);
+            },
+        );
+    };
+
+    const announce = (type: "hello" | "active"): void => {
+        send({
+            type,
+            ...(type === "hello" ? { protocol: PROTOCOL_VERSION, version: VERSION } : {}),
+            ...pageInfo(),
+        } satisfies BrowserHello);
+    };
+
+    const onFocus = (): void => {
+        markActive();
+        announce("active");
+    };
+    const onVisibility = (): void => {
+        const doc = (globalThis as { document?: { visibilityState?: string } }).document;
+        if (doc?.visibilityState === "visible") onFocus();
+    };
+    const target = globalThis as {
+        addEventListener?: (t: string, l: () => void) => void;
+        removeEventListener?: (t: string, l: () => void) => void;
+        document?: {
+            addEventListener?: (t: string, l: () => void) => void;
+            removeEventListener?: (t: string, l: () => void) => void;
+        };
+    };
+    target.addEventListener?.("focus", onFocus);
+    target.document?.addEventListener?.("visibilitychange", onVisibility);
 
     const connect = (): void => {
         if (disposed) return;
+        const sep = url.includes("?") ? "&" : "?";
+        const socket = new WebSocket(`${url}${sep}role=browser&v=${PROTOCOL_VERSION}`);
+        ws = socket;
 
-        ws = new WebSocket(`ws://localhost:${port}${path}?role=browser`);
-
-        ws.onopen = () => {
-            console.log(`[Devtools Bridge] connected to ws://localhost:${port}${path}`);
+        socket.onopen = () => {
+            console.log(`[Devtools Bridge] connected to ${url}`);
+            announce("hello");
         };
 
-        ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data as string) as ServerMessage;
-            handleMessage(msg, send).catch((err) => {
-                console.error("[Devtools Bridge] error handling message:", err);
-                if ("id" in msg) {
-                    send({ type: "action_result", id: msg.id, success: false, error: String(err) });
-                }
-            });
+        socket.onmessage = (event) => {
+            let msg: { id?: unknown; type?: unknown; params?: unknown };
+            try {
+                msg = JSON.parse(String(event.data)) as typeof msg;
+            } catch {
+                return;
+            }
+            if (typeof msg.id !== "string" || typeof msg.type !== "string") return;
+            const { id, type } = msg;
+            const params = (msg.params ?? {}) as Record<string, unknown>;
+            respond(id, () => handleRequest(type, params));
         };
 
-        ws.onclose = () => {
-            scheduleReconnect();
+        socket.onclose = (event) => {
+            if (ws === socket) ws = null;
+            if (disposed) return;
+            if (FATAL_CLOSE_CODES.has(event.code)) {
+                console.warn(
+                    `[Devtools Bridge] relay refused the connection (${event.code}): ${event.reason || "no reason given"} — not reconnecting.`,
+                );
+                return;
+            }
+            reconnectTimer = setTimeout(connect, RECONNECT_INTERVAL_MS);
         };
 
-        ws.onerror = () => {
-            ws?.close();
+        socket.onerror = () => {
+            socket.close();
         };
-    };
-
-    const scheduleReconnect = (): void => {
-        if (disposed) return;
-        reconnectTimer = setTimeout(connect, RECONNECT_INTERVAL_MS);
-    };
-
-    const cleanup = (): boolean => {
-        if (disposed) return false;
-        disposed = true;
-        if (reconnectTimer) clearTimeout(reconnectTimer);
-        ws?.close();
-        return true;
     };
 
     connect();
-    return cleanup;
+
+    return {
+        refs: 0,
+        closeTimer: null,
+        close: () => {
+            disposed = true;
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            target.removeEventListener?.("focus", onFocus);
+            target.document?.removeEventListener?.("visibilitychange", onVisibility);
+            ws?.close();
+        },
+    };
+};
+
+/**
+ * Connects to the relay. Safe to call from several places (one per sketch,
+ * component, route…): calls with the same target share one socket, which
+ * closes shortly after the last disposer ran.
+ */
+export const connectDevtools = (options?: ConnectOptions): DisposeFn => {
+    installGlobal();
+    if (typeof WebSocket === "undefined") {
+        console.warn("[Devtools Bridge] no WebSocket implementation in this environment — not connecting.");
+        return () => false;
+    }
+    const url = resolveRelayUrl(options, (globalThis as { location?: LocationLike }).location);
+
+    let conn = connections.get(url);
+    if (!conn) {
+        conn = open(url);
+        connections.set(url, conn);
+    }
+    if (conn.closeTimer) {
+        clearTimeout(conn.closeTimer);
+        conn.closeTimer = null;
+    }
+    conn.refs++;
+
+    const mine = conn;
+    let disposed = false;
+    return () => {
+        if (disposed) return false;
+        disposed = true;
+        if (--mine.refs > 0) return true;
+        mine.closeTimer = setTimeout(() => {
+            mine.closeTimer = null;
+            if (mine.refs > 0) return;
+            mine.close();
+            if (connections.get(url) === mine) connections.delete(url);
+        }, CLOSE_GRACE_MS);
+        return true;
+    };
 };
