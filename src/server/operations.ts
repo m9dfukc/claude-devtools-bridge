@@ -26,16 +26,16 @@ export const status = async (client: BridgeClient, tab?: string): Promise<Outcom
     if (state.kind !== "connected") {
         return { text: client.explain(state), isError: true };
     }
-    const relay = await client.request<RelayStatus>("relay_status");
+    // Ask the tab first: answering makes it report a changed URL / title to
+    // the relay, so the tab list fetched afterwards is current.
     let description: Description | undefined;
     let descriptionError: string | undefined;
-    if (relay.tabs.length > 0) {
-        try {
-            description = await client.request<Description>("describe", {}, { ...(tab ? { tab } : {}) });
-        } catch (err) {
-            descriptionError = (err as Error).message;
-        }
+    try {
+        description = await client.request<Description>("describe", {}, { ...(tab ? { tab } : {}) });
+    } catch (err) {
+        descriptionError = (err as Error).message;
     }
+    const relay = await client.request<RelayStatus>("relay_status");
     return { text: formatStatus(client.explain(state), relay, description, descriptionError, VERSION) };
 };
 

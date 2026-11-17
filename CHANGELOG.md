@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1
+
+- The tab URL and title shown by `status` follow in-page navigation: hash and history
+  changes (`hashchange`, `popstate`), a component that connects on an already open
+  socket (route change within the close grace period), and — for routers that use
+  `pushState` / `replaceState`, which fire no event — the next request the tab answers.
+  `status` asks the tab before it lists the tabs, so the URL is current on the first call.
+- New unsolicited browser message `page` (`url`, `title`). Unlike `active` it does not
+  touch the focus order, so a background tab that navigates never takes over routing.
+- No protocol change: a 0.4.0 relay ignores `page`, a 0.4.0 client never sends it.
+
 ## 0.4.0
 
 The wire protocol between browser client, relay and MCP server changed (protocol v2).

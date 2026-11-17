@@ -95,6 +95,19 @@ test("several tabs: default is the most recently focused one, others are address
     first.send({ id: req["id"], ok: true, data: 1 });
     assert.equal((await mcp.next((m) => m["id"] === "3"))["tab"], firstId);
 
+    // A `page` message updates what is shown but not who is in front.
+    first.send({ type: "page", url: "http://localhost/one#moved", title: "Moved" });
+    await sleep(20);
+    mcp.send({ id: "p", type: "relay_status" });
+    const afterPage = (await mcp.next((m) => m["id"] === "p"))["data"] as typeof status;
+    assert.deepEqual(
+        afterPage.tabs.map((t) => [t.url, t.active]),
+        [
+            ["http://localhost/one#moved", false],
+            ["http://localhost/two", true],
+        ],
+    );
+
     // A tab that reloads while the browser is in the background keeps its place.
     second.ws.close();
     await sleep(20);

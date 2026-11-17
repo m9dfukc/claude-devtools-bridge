@@ -60,6 +60,8 @@ export const resolveRelayUrl = (options: ConnectOptions = {}, loc?: LocationLike
 interface Connection {
     refs: number;
     close(): void;
+    /** Tells the relay the page's URL / title if they changed since last reported. */
+    announcePage(): void;
     closeTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -87,11 +89,16 @@ const markActive = (): void => {
     }
 };
 
-const pageInfo = (): Pick<BrowserHello, "url" | "title" | "focused" | "activeAt"> => {
-    const g = globalThis as {
-        location?: LocationLike;
-        document?: { title?: string; hasFocus?: () => boolean };
+const pageLocation = (): Pick<BrowserHello, "url" | "title"> => {
+    const g = globalThis as { location?: LocationLike; document?: { title?: string } };
+    return {
+        ...(g.location?.href ? { url: g.location.href } : {}),
+        ...(g.document?.title ? { title: g.document.title } : {}),
     };
+};
+
+const pageInfo = (): Pick<BrowserHello, "url" | "title" | "focused" | "activeAt"> => {
+    const g = globalThis as { document?: { hasFocus?: () => boolean } };
     let focused = false;
     try {
         focused = g.document?.hasFocus?.() ?? false;
@@ -99,12 +106,7 @@ const pageInfo = (): Pick<BrowserHello, "url" | "title" | "focused" | "activeAt"
         focused = false;
     }
     if (focused) markActive();
-    return {
-        ...(g.location?.href ? { url: g.location.href } : {}),
-        ...(g.document?.title ? { title: g.document.title } : {}),
-        focused,
-        activeAt: readActiveAt(),
-    };
+    return { ...pageLocation(), focused, activeAt: readActiveAt() };
 };
 
 const open = (url: string): Connection => {
@@ -130,12 +132,26 @@ const open = (url: string): Connection => {
         );
     };
 
-    const announce = (type: "hello" | "active"): void => {
+    // What the relay was last told about this page.
+    let sentUrl: string | undefined;
+    let sentTitle: string | undefined;
+
+    const announce = (type: BrowserHello["type"]): void => {
+        if (ws?.readyState !== 1) return;
+        // `page` must not touch the focus order: no `focused`, no `activeAt`.
+        const info = type === "page" ? pageLocation() : pageInfo();
+        sentUrl = info.url;
+        sentTitle = info.title;
         send({
             type,
             ...(type === "hello" ? { protocol: PROTOCOL_VERSION, version: VERSION } : {}),
-            ...pageInfo(),
+            ...info,
         } satisfies BrowserHello);
+    };
+
+    const announcePage = (): void => {
+        const { url, title } = pageLocation();
+        if (url !== sentUrl || title !== sentTitle) announce("page");
     };
 
     const onFocus = (): void => {
@@ -156,6 +172,10 @@ const open = (url: string): Connection => {
     };
     target.addEventListener?.("focus", onFocus);
     target.document?.addEventListener?.("visibilitychange", onVisibility);
+    // In-page navigation. pushState / replaceState fire no event; those are
+    // picked up when a component (re)connects and before each request is answered.
+    target.addEventListener?.("hashchange", announcePage);
+    target.addEventListener?.("popstate", announcePage);
 
     const connect = (): void => {
         if (disposed) return;
@@ -178,6 +198,7 @@ const open = (url: string): Connection => {
             if (typeof msg.id !== "string" || typeof msg.type !== "string") return;
             const { id, type } = msg;
             const params = (msg.params ?? {}) as Record<string, unknown>;
+            announcePage();
             respond(id, () => handleRequest(type, params));
         };
 
@@ -203,11 +224,14 @@ const open = (url: string): Connection => {
     return {
         refs: 0,
         closeTimer: null,
+        announcePage,
         close: () => {
             disposed = true;
             if (reconnectTimer) clearTimeout(reconnectTimer);
             target.removeEventListener?.("focus", onFocus);
             target.document?.removeEventListener?.("visibilitychange", onVisibility);
+            target.removeEventListener?.("hashchange", announcePage);
+            target.removeEventListener?.("popstate", announcePage);
             ws?.close();
         },
     };
@@ -230,6 +254,9 @@ export const connectDevtools = (options?: ConnectOptions): DisposeFn => {
     if (!conn) {
         conn = open(url);
         connections.set(url, conn);
+    } else {
+        // A component that mounts and connects usually means a route change.
+        conn.announcePage();
     }
     if (conn.closeTimer) {
         clearTimeout(conn.closeTimer);
