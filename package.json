@@ -1,7 +1,16 @@
 {
     "name": "claude-devtools-bridge",
-    "version": "0.4.1",
+    "version": "0.4.2",
     "description": "MCP devtools bridge — lets Claude inspect and drive live application state via WebSocket",
+    "author": "m9dfukc",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/m9dfukc/claude-devtools-bridge.git"
+    },
+    "homepage": "https://github.com/m9dfukc/claude-devtools-bridge#readme",
+    "bugs": {
+        "url": "https://github.com/m9dfukc/claude-devtools-bridge/issues"
+    },
     "type": "module",
     "exports": {
         ".": {
@@ -43,7 +52,8 @@
         "build": "node build.js",
         "typecheck": "tsc -p tsconfig.json",
         "test": "tsx --test test/*.test.ts",
-        "devtools": "tsx src/server/mcp-server.ts"
+        "devtools": "tsx src/server/mcp-server.ts",
+        "prepublishOnly": "yarn typecheck && yarn build && yarn test"
     },
     "dependencies": {
         "ws": "^8.18.0"

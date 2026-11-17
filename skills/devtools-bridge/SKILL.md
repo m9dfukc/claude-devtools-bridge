@@ -65,7 +65,7 @@ Do not rewire the app's devtools setup because of a connection problem — the c
 ## Installation
 
 ```bash
-npm install -D claude-devtools-bridge@github:m9dfukc/claude-devtools-bridge
+npm install -D claude-devtools-bridge
 ```
 
 Mount the relay on the dev server:

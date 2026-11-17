@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2
+
+- Published on the npm registry. Install with `yarn add -D claude-devtools-bridge` /
+  `npm install -D claude-devtools-bridge`. No code changes.
+
 ## 0.4.1
 
 - The tab URL and title shown by `status` follow in-page navigation: hash and history

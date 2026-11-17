@@ -46,15 +46,12 @@ There are three parts: the **relay** (mounted on your dev server), the **client*
 ### 1. Install the package
 
 ```bash
-# npm
-npm install -D claude-devtools-bridge@github:m9dfukc/claude-devtools-bridge
-
-# pnpm / yarn berry (v2+)
-pnpm add -D claude-devtools-bridge@github:m9dfukc/claude-devtools-bridge
-
-# yarn v1 (classic)
-yarn add -D claude-devtools-bridge@m9dfukc/claude-devtools-bridge
+npm install -D claude-devtools-bridge
+pnpm add -D claude-devtools-bridge
+yarn add -D claude-devtools-bridge
 ```
+
+To try a commit that is not released yet, install from GitHub instead: `claude-devtools-bridge@github:m9dfukc/claude-devtools-bridge` (yarn v1: `claude-devtools-bridge@m9dfukc/claude-devtools-bridge`).
 
 ### 2. Mount the relay on your dev server
 
@@ -544,6 +541,8 @@ yarn build   # rebuilds dist/ (committed — the plugin and GitHub installs use 
 ## Migration
 
 See [CHANGELOG.md](CHANGELOG.md) for details.
+
+**From a GitHub install:** `yarn remove claude-devtools-bridge && yarn add -D claude-devtools-bridge`.
 
 **From v0.3.x to v0.4.0** — the wire protocol changed; update the npm dependency *and* the plugin together.
 
