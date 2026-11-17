@@ -1,3 +1,2 @@
-// Shared types for the MCP devtools bridge — framework-agnostic
+// Public types of the browser-side client — framework-agnostic
 export {};
-//# sourceMappingURL=types.js.map

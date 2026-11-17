@@ -1,55 +1,57 @@
-// Wraps external calls (fetch, storage, APIs) as observable effects that get logged
-import { addLogEntry } from "./action-registry";
-import { safeSerializeValue } from "./safe-serialize";
-/**
- * Wraps an external call (fetch, localStorage, API) so it appears in logs.
- * Unlike wrapAction, effects don't snapshot atom state — they log args, result/error, and duration.
- */
+// Wraps external calls (fetch, storage, APIs) as observable effects.
+// Effects do not snapshot state — they log args, result or error, and duration.
+import { addLogEntry, currentFrame, inFlightNames } from "./action-registry.js";
+import { safeSerializeValue } from "./safe-serialize.js";
+import { clip } from "./summarize.js";
+import { isThenable } from "./wrap-action.js";
+const now = () => typeof performance !== "undefined" ? performance.now() : Date.now();
 export const wrapEffect = (name, fn) => {
-    const wrapped = (...args) => {
-        const start = performance.now();
+    const wrapped = function (...args) {
+        const parent = currentFrame();
+        const during = inFlightNames();
+        const startedAt = Date.now();
+        const t0 = now();
+        const record = (isAsync, result, error) => {
+            try {
+                const entry = {
+                    action: name,
+                    kind: "effect",
+                    timestamp: startedAt,
+                    duration: Math.round((now() - t0) * 100) / 100,
+                    diffs: [],
+                    args: clip(safeSerializeValue(args)),
+                    ...(isAsync ? { async: true } : {}),
+                    ...(error !== undefined
+                        ? { error: String(error) }
+                        : result !== undefined
+                            ? { result: clip(safeSerializeValue(result)) }
+                            : {}),
+                };
+                addLogEntry(entry, parent, during);
+            }
+            catch (err) {
+                console.warn("[Devtools Bridge] logging failed:", err);
+            }
+        };
         let result;
         try {
-            result = fn(...args);
+            result = fn.apply(this, args);
         }
         catch (err) {
-            const duration = performance.now() - start;
-            addLogEntry(buildEffectEntry(name, args, undefined, String(err), duration));
+            record(false, undefined, err ?? "undefined");
             throw err;
         }
-        // Handle async effects
-        if (result instanceof Promise) {
+        if (isThenable(result)) {
             return result.then((resolved) => {
-                const duration = performance.now() - start;
-                addLogEntry(buildEffectEntry(name, args, resolved, undefined, duration));
+                record(true, resolved);
                 return resolved;
-            }).catch((err) => {
-                const duration = performance.now() - start;
-                addLogEntry(buildEffectEntry(name, args, undefined, String(err), duration));
+            }, (err) => {
+                record(true, undefined, err ?? "undefined");
                 throw err;
             });
         }
-        const duration = performance.now() - start;
-        addLogEntry(buildEffectEntry(name, args, result, undefined, duration));
+        record(false, result);
         return result;
     };
     return wrapped;
 };
-const buildEffectEntry = (name, args, result, error, duration) => {
-    const entry = {
-        action: name,
-        timestamp: Date.now(),
-        kind: "effect",
-        diffs: [],
-        duration: Math.round(duration * 100) / 100,
-        args: safeSerializeValue(args),
-    };
-    if (error !== undefined) {
-        return { ...entry, error };
-    }
-    if (result !== undefined) {
-        return { ...entry, result: safeSerializeValue(result) };
-    }
-    return entry;
-};
-//# sourceMappingURL=wrap-effect.js.map

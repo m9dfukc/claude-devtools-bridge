@@ -1,76 +1,69 @@
-// Wraps an action function to capture before/after atom snapshots with nested tree support
-import { getRegisteredAtoms, addLogEntry, pushExecutionContext, popExecutionContext, } from "./action-registry";
-const snapshotAtoms = () => {
-    const snap = new Map();
-    for (const [name, atom] of getRegisteredAtoms()) {
-        try {
-            snap.set(name, structuredClone(atom.deref()));
-        }
-        catch {
-            snap.set(name, JSON.parse(JSON.stringify(atom.deref())));
-        }
+// Wraps an action so each call is logged with the state changes it caused.
+// The wrapper is transparent: same arguments, same return value, errors are
+// re-thrown unchanged, and a failure inside the logging never reaches the app.
+import { addLogEntry, closeFrame, currentFrame, markInFlight, openFrame, runInFrame, } from "./action-registry.js";
+import { safeSerializeValue } from "./safe-serialize.js";
+import { diffSnapshots, snapshotAtoms } from "./snapshot.js";
+import { clip } from "./summarize.js";
+export const isThenable = (v) => v !== null &&
+    (typeof v === "object" || typeof v === "function") &&
+    typeof v.then === "function";
+const now = () => typeof performance !== "undefined" ? performance.now() : Date.now();
+const round = (ms) => Math.round(ms * 100) / 100;
+const guarded = (fn) => {
+    try {
+        fn();
     }
-    return snap;
-};
-const computeDiffs = (before, after) => {
-    const diffs = [];
-    for (const [name, beforeVal] of before) {
-        const afterVal = after.get(name);
-        if (JSON.stringify(beforeVal) !== JSON.stringify(afterVal)) {
-            diffs.push({ atom: name, before: beforeVal, after: afterVal });
-        }
+    catch (err) {
+        console.warn("[Devtools Bridge] logging failed:", err);
     }
-    return diffs;
-};
-const buildEntry = (actionName, before, children) => {
-    const after = snapshotAtoms();
-    const entry = {
-        action: actionName,
-        timestamp: Date.now(),
-        kind: "action",
-        diffs: computeDiffs(before, after),
-    };
-    if (children.length > 0) {
-        return { ...entry, children };
-    }
-    return entry;
 };
 export const wrapAction = (name, fn) => {
-    const wrapped = (...args) => {
-        const before = snapshotAtoms();
-        pushExecutionContext();
-        // let instead of const — need to assign in try and read in finally
-        let result; // eslint-disable-line prefer-const
+    const wrapped = function (...args) {
+        const parent = currentFrame();
+        const frame = openFrame(name);
+        const t0 = now();
+        let before = new Map();
+        guarded(() => {
+            before = snapshotAtoms();
+        });
+        const finish = (isAsync, error) => {
+            closeFrame(frame);
+            guarded(() => {
+                const entry = {
+                    action: name,
+                    kind: "action",
+                    timestamp: frame.startedAt,
+                    duration: round(now() - t0),
+                    diffs: diffSnapshots(before, snapshotAtoms()),
+                    ...(isAsync ? { async: true } : {}),
+                    ...(args.length > 0 ? { args: clip(safeSerializeValue(args)) } : {}),
+                    ...(frame.children.length > 0 ? { children: frame.children } : {}),
+                    ...(error !== undefined ? { error: String(error) } : {}),
+                };
+                addLogEntry(entry, parent, frame.during);
+            });
+        };
+        let result;
         try {
-            result = fn(...args);
+            result = runInFrame(frame, () => fn.apply(this, args));
         }
         catch (err) {
-            const children = popExecutionContext();
-            addLogEntry({
-                ...buildEntry(name, before, children),
-                error: String(err),
-            });
+            finish(false, err ?? "undefined");
             throw err;
         }
-        // Handle async actions
-        if (result instanceof Promise) {
+        if (isThenable(result)) {
+            markInFlight(frame);
             return result.then((resolved) => {
-                const children = popExecutionContext();
-                addLogEntry(buildEntry(name, before, children));
+                finish(true);
                 return resolved;
-            }).catch((err) => {
-                const children = popExecutionContext();
-                addLogEntry({
-                    ...buildEntry(name, before, children),
-                    error: String(err),
-                });
+            }, (err) => {
+                finish(true, err ?? "undefined");
                 throw err;
             });
         }
-        const children = popExecutionContext();
-        addLogEntry(buildEntry(name, before, children));
+        finish(false);
         return result;
     };
     return wrapped;
 };
-//# sourceMappingURL=wrap-action.js.map

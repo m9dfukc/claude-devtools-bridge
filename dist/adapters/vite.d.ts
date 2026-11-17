@@ -1,3 +1,4 @@
 import type { Plugin } from "vite";
-export declare const devtoolsBridgePlugin: () => Plugin;
-//# sourceMappingURL=vite.d.ts.map
+import { type RelayOptions } from "../relay/ws-relay.js";
+export type { RelayOptions } from "../relay/ws-relay.js";
+export declare const devtoolsBridgePlugin: (options?: RelayOptions) => Plugin;

@@ -1,4 +1,3 @@
 // Standalone adapter — creates its own HTTP server for the relay
 import { createStandaloneRelay } from "../relay/ws-relay.js";
-export const startDevtoolsBridge = (port = 7777) => createStandaloneRelay(port);
-//# sourceMappingURL=standalone.js.map
+export const startDevtoolsBridge = (port = 7777, options) => createStandaloneRelay(port, options);

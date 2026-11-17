@@ -1,35 +1,18 @@
-// Vite plugin adapter — mounts the devtools relay on Vite's HTTP server
-import { WebSocketServer } from "ws";
-import { createRelayFromWss } from "../relay/ws-relay.js";
-const RELAY_PATH = "/devtools-bridge";
-export const devtoolsBridgePlugin = () => {
-    let cleanup;
-    return {
-        name: "devtools-bridge",
-        configureServer(server) {
-            const httpServer = server.httpServer;
-            if (!httpServer)
-                return;
-            // noServer mode: we handle the upgrade event ourselves,
-            // only forwarding requests that match RELAY_PATH.
-            // Using `{ server: httpServer }` would add a catch-all
-            // upgrade listener that races with Vite's HMR handler.
-            const wss = new WebSocketServer({ noServer: true });
-            const relay = createRelayFromWss(wss);
-            cleanup = () => relay.close();
-            httpServer.on("upgrade", (req, socket, head) => {
-                const url = new URL(req.url ?? "/", "http://localhost");
-                if (url.pathname !== RELAY_PATH)
-                    return;
-                wss.handleUpgrade(req, socket, head, (ws) => {
-                    wss.emit("connection", ws, req);
-                });
-            });
-            console.log(`[Devtools Bridge] mounted on path ${RELAY_PATH}`);
-        },
-        buildEnd() {
-            cleanup?.();
-        },
-    };
-};
-//# sourceMappingURL=vite.js.map
+// Vite plugin adapter — mounts the devtools relay on Vite's dev server
+import { createRelay } from "../relay/ws-relay.js";
+export const devtoolsBridgePlugin = (options = {}) => ({
+    name: "devtools-bridge",
+    apply: "serve",
+    configureServer(server) {
+        const httpServer = server.httpServer;
+        if (!httpServer)
+            return; // middleware mode — mount with adapters/node instead
+        // The relay removes itself when the HTTP server closes (also on
+        // Vite restarts), and writes the real port — which may differ from
+        // the configured one — to the discovery file.
+        createRelay(httpServer, {
+            root: server.config.root,
+            ...options,
+        });
+    },
+});
